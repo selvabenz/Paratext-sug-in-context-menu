@@ -14,3 +14,8 @@ private-notes/
 
 # Locally referenced Paratext binaries
 lib/paratext/
+
+# Local previews, private analysis, binaries and release staging
+output/
+artifacts/
+*.log

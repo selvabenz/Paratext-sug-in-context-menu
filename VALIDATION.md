@@ -1,0 +1,34 @@
+# Validation record — 0.1.0-preview.1
+
+Environment inspected: Windows, Paratext executable 9.5.110.1, installed CorePluginInterfaces and PluginInterfaces 2.0.100.0, .NET Framework 4.8 target. Build performed with C# 5 compiler, warnings treated as errors.
+
+## Completed
+
+- Plugin compiles against both installed public interface assemblies. Public standalone plugin menu registrations and target framework are asserted by tests.
+- **79 automated checks pass**, including all 16 category labels, reviewer/alternative/instruction routing, stale note and original refusal, exact Tamil replacement, combining-character boundaries, duplicate source fields, region separation, conflicting corrections, explicit deletion, permission/lock failures, revoked locks, repeated-click refusal, save exceptions, saved-token mismatch reporting, checked revert, supported marker rename and refusing verse-number changes.
+- Synthetic host doubles exercise `GetNotes`, `CanEdit`, `RequestWriteLock`, `GetUSFMTokens`, `PutUSFMTokens`, serialization/reparse, notifications and history calls. These tests establish plugin behavior against the interface contracts, not the real host's persistence implementation.
+- The actual WinForms review window was opened on the desktop with synthetic Tamil data. Text, controls and source discussion were readable at the observed window size. Apply was disabled until review acknowledgement. Applying the sample removed the intended comma; the test harness saved and the executor re-read the synthetic USFM file containing the corrected text.
+- The local IRVTam note inventory found 16,905 structured QA comments (R2 and P3), without modifying project files or copying source notes into the repository. The test runner supports a read-only aggregate routing audit; this audit does not assert current thread status or edit applicability.
+
+## Not yet established
+
+- Real Paratext host discovery/loading and secondary-popup behavior.
+- Writes, token round-trip normalization, history points and editor refresh inside the real host.
+- Reopening a real disposable Paratext project after a plugin edit.
+- USFM export and Send/Receive round-trip from a disposable project.
+- Native Ctrl+Z behavior, full history restore, bridged-verse identity and all real token-region layouts.
+
+The user's running Paratext session was not restarted; the preview was not installed into Program Files. No live IRVTam Scripture or notes were edited. A stable release must not be inferred from the automated test result.
+
+## Disposable-project acceptance checklist
+
+1. Back up or create a disposable project, then install using INSTALL.md and confirm the two Note suggestions commands.
+2. Add synthetic QA notes with a known exact word/phrase correction. Test direct Apply and category-filtered review. Verify saved text after closing and reopening.
+3. Repeat for sentence and whole-verse content contained in a single supported text token. Confirm unrelated verse text and markers remain unchanged.
+4. Put identical words in Scripture body and a footnote. Apply a footnote correction and confirm only that note changes. Repeat for a heading and introduction after checking actual tokens.
+5. Test stale/duplicate originals, deleted/resolved notes, restricted passages, later comments, repeated words, competing R2/P3 proposals and an unavailable lock. Confirm no accidental write.
+6. Test the supported marker rename, validate USFM, and verify complex verse swaps/bridges or note moves are refused.
+7. Revert immediately, then confirm revert refuses after another edit. Inspect requested history points.
+8. Export USFM and compare an exact before/after diff. Confirm marker/note structure is preserved except for the deliberately chosen operation.
+9. With explicit test-project synchronization authorization, Send/Receive to another disposable copy and verify the same correction arrives. Record merge/conflict behavior.
+10. Record Paratext version, results and any API normalization differences before promoting a stable release.
