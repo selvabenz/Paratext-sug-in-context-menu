@@ -6,7 +6,9 @@ For Paratext 9.5.110.1, surface existing project-note suggestions at the passage
 
 Confirmed: Windows Paratext version 9.5.110.1.
 
-Working assumptions to confirm: suggestions come from existing project notes; the user means the Scripture editor's right-click menu; unresolved notes are shown by default. A note can contain general discussion rather than a replacement instruction, so the plugin must preserve the distinction between a note preview and an actionable text replacement.
+The supplied screenshot shows the Scripture editor's right-click menu alongside a QA project note containing `Original:`, `Suggested:`, `Reason:`, confidence, and review information. Use the `Suggested:` field as the correction preview and retain the other fields for review. The screenshot demonstrates the desired source format; it does not establish the stored rich-text structure or authorize automatic replacement.
+
+Working assumption: unresolved notes are shown by default. A note can contain general discussion rather than a replacement instruction, so the plugin must preserve the distinction between a suggestion and an actionable text replacement.
 
 ## Proposed interaction
 
@@ -15,8 +17,8 @@ Conceptual menu, pending verification of dynamic submenu support:
 ```text
 [Existing Paratext commands]
 Note suggestions >
-    [Short preview of note matching the selected phrase]
-    [Short preview of another note for this verse]
+    [Suggested: proposed correction matching the selected phrase]
+    [Suggested: another proposed correction for this verse]
     View all notes for this passage...
     Refresh suggestions
 ```
@@ -29,6 +31,16 @@ Note suggestions >
 - Initial release reads notes and displays suggestions. Selecting a preview opens details; it does not change Scripture text or resolve a note.
 - Applying an explicitly structured replacement can be a later feature, after source/target mapping, write locks, permissions, and undo behavior are validated. Never infer a replacement automatically from arbitrary prose.
 - Preserve existing Paratext context-menu commands and keyboard operation, including the Menu key / Shift+F10 where supported.
+
+## QA note field extraction
+
+- Read the stored note contents through the API and identify explicit `Original:`, `Suggested:`, and `Reason:` field boundaries across rich-text runs and paragraphs. Do not depend on screenshot OCR or bold styling.
+- Display the `Suggested:` value in the context menu; show `Original:`, `Reason:`, confidence, and any human-review statement in the detail view.
+- Preserve punctuation, whitespace within the proposed correction, and Tamil combining sequences. Do not strip meaningful punctuation while formatting labels.
+- Use the note anchor and passage as the primary match. Use `Original:` as an additional check against the current text, accounting for repeated occurrences. If the original text has changed, mark the suggestion as needing review.
+- Treat missing, empty, or multiple ambiguous `Suggested:` fields as review-only notes. Do not invent a correction or silently choose among conflicting comments.
+- Keep each candidate tied to its source note and comment. Do not combine the original text from one comment with a suggestion from another.
+- Validate extraction with synthetic QA notes representing rich-text split labels, multiline fields, punctuation-only corrections, missing fields, and conflicting suggestions.
 
 ## Technical evidence and feasibility gate
 
@@ -52,6 +64,7 @@ Before choosing the framework or producing an installer:
 | --- | --- |
 | Paratext adapter | Read active project, passage, selection, and notes using supported APIs. |
 | Note matcher | Filter unresolved notes and compare anchors using the project's versification and supported selection information. |
+| QA field parser | Extract explicit Original, Suggested, and Reason fields from the same source comment while preserving the correction text. |
 | Preview formatter | Produce readable, bounded, Unicode-safe menu text without treating note prose as code or replacement instructions. |
 | Context-menu integration | Register commands and, if supported, refresh previews for the captured context. |
 | Detail view | Display the full note thread and its source context. |
@@ -83,6 +96,7 @@ Document installation and removal for the verified deployment mechanism. Test in
 - Plugin loads on Paratext 9.5.110.1 without startup errors.
 - A right-click on the intended passage exposes the note-suggestions feature without removing native commands.
 - For the preferred design, matching suggestion previews are visible directly in the menu/submenu before opening a panel.
+- For structured QA notes like the supplied screenshot, the preview contains the `Suggested:` correction, and the full view retains the original text, reason, and human-review statement.
 - Selected-text anchors rank ahead of other notes for that verse; repeated words and verse ranges do not produce a falsely precise match.
 - Resolved notes are excluded by default; inaccessible notes are never exposed.
 - Opening a preview displays the correct full thread and reference.
@@ -93,6 +107,6 @@ Document installation and removal for the verified deployment mechanism. Test in
 
 ## Remaining decisions
 
-- Confirm whether all project notes count as suggestions or only a note category/tag or structured format.
+- Confirm whether structured QA notes should be restricted to a particular category/tag or whether any note containing the explicit fields qualifies.
 - Confirm whether a later version should apply replacement text or only show the notes.
 - Verify dynamic submenu support, framework target, SDK compatibility, installation path, and native note-opening support on the installed version.

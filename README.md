@@ -8,13 +8,13 @@ Target: **Paratext 9.5.110.1 on Windows**.
 
 Planning repository. No plugin has been built, installed, or tested in Paratext yet.
 
-The initial interpretation is that suggestions already exist in project notes. Automatically generating suggestions is outside the initial scope. Confirm this interpretation before implementing suggestion extraction.
+The user's screenshot shows QA project notes with `Original:`, `Suggested:`, and `Reason:` fields. The menu should surface the existing `Suggested:` correction for the relevant passage. Automatically generating suggestions is outside the initial scope.
 
 ## Intended workflow
 
 1. Select a word or phrase, or place the cursor in a verse.
 2. Right-click and find **Note suggestions**.
-3. See short previews of relevant unresolved notes for this project and passage.
+3. See the proposed corrections from the `Suggested:` fields of relevant unresolved QA notes.
 4. Choose a preview to read the full note, its author, reference, and discussion.
 
 Direct, dynamically populated submenu previews are the preferred outcome, subject to API verification. A single context-menu command opening a suggestions panel is a fallback and does not complete the direct-preview requirement.
