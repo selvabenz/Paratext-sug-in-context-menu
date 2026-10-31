@@ -10,7 +10,8 @@ Adds editable reusable comments and full session review reports.
 - Recover interrupted session reports and preserve older decisions without inventing historical context or reviewer identity.
 - Verify the project folder identity; report failures preserve local decisions and offer retry.
 - Continue scanning past unreadable legacy-language discussions with visible report warnings; block decisions on unreadable sources and preserve other readable notes.
-- 124 automated checks pass. Real-host preset/report acceptance is tracked in VALIDATION.md.
+- 125 automated checks pass. Installed-host preset selection, exact Apply, unchanged Reject, source resolution and embedded HTML report acceptance passed in disposable NSTest.
+- IRVTam scanning completed with 16,270 proposals and 215 explicit legacy-discussion warnings. The queue was left paused; all 85 production Scripture/notes files matched the pre-install baseline. See VALIDATION.md for evidence and remaining export/Send-Receive limits.
 
 ---
 

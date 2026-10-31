@@ -24,6 +24,15 @@ namespace NoteSuggestionsTests
         }
         public static void Run(Action<string, Action> test)
         {
+            test("next proposal keeps comment controls enabled after a decision", delegate {
+                var f = new Fixture(); f.Replies.Add(Fixture.Comment(Fixture.Qa("Grammar", "old", "new", "Yes")));
+                using (var q = Queue(f, Root()))
+                {
+                    Field<TextBox>(q, "comment").Text = "Reject first"; Call(q, "Decide", "Rejected");
+                    Check(Field<TextBox>(q, "comment").Enabled && Field<ComboBox>(q, "commentPreset").Enabled);
+                    q.Close();
+                }
+            });
             test("apply saves decision then resolves the original note", delegate {
                 var f = new Fixture(); string root = Root(), id = f.Service().ReadQueueBook(1).Single().StableId;
                 using (var q = Queue(f, root)) { Field<CheckBox>(q, "reviewed").Checked = true; Call(q, "Decide", "Applied"); Check(f.Writes == 1 && f.Resolved && f.Resolves == 1 && !f.LockHeld); q.Close(); }
