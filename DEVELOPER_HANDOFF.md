@@ -2,9 +2,11 @@
 
 ## Release and status
 
-0.1.0-preview.2 is an initial working C# implementation for Windows Paratext 9.5.110.1. It compiles against installed `CorePluginInterfaces.dll` and `PluginInterfaces.dll`, both assembly version 2.0.100.0. Target .NET Framework 4.8, AnyCPU. This is a preview, not a claim of production readiness or completion of every structural edit category.
+0.2.0-preview.1 is an initial working C# implementation for Windows Paratext 9.5.110.1. It compiles against installed `CorePluginInterfaces.dll` and `PluginInterfaces.dll`, both assembly version 2.0.100.0. Target .NET Framework 4.8, AnyCPU. This is a preview, not a claim of production readiness or completion of every structural edit category.
 
-The plugin is now installed and loaded in the user's real Paratext host. Test writes targeted a separate synthetic NSTest project, with on-disk USFM comparisons for body and footnote corrections, ambiguity refusal, and revert. The user's session was saved and restarted normally with administrator approval for installation. IRVTam was not targeted by any plugin edit. See VALIDATION.md for the remaining export/Send-Receive boundary.
+The preceding 0.1.0-preview.2 plugin was installed and loaded in the user's real Paratext host. Test writes targeted a separate synthetic NSTest project, with on-disk USFM comparisons for body and footnote corrections, ambiguity refusal, and revert. The user's session was saved and restarted normally with administrator approval for installation. IRVTam was not targeted by any plugin edit. See VALIDATION.md for the remaining export/Send-Receive boundary.
+
+The new queue has also loaded 16,270 unresolved QA proposals in the real host, navigated to the first passage and paused without a production decision. All 85 Scripture/note hashes matched the immediate pre-queue baseline. Queue apply/advance through the real host still needs disposable-project acceptance; 94 synthetic checks pass.
 
 ## Build
 
@@ -25,6 +27,9 @@ No NuGet restore or .NET SDK installation is needed. The build uses Windows' .NE
 | src/NoteService.cs | Live note retrieval, anchor/discussion fingerprints, conflict grouping, permissions/locks, token region mapping, host writes, verification, history and checked session revert. |
 | src/Plugin.cs | Public standalone plugin, fixed context/Tools commands and dynamic secondary popup. |
 | src/ReviewForm.cs | Category filter, source discussion, editable literal correction, explicit deletion, review acknowledgement and supported marker action. |
+| src/QueueForm.cs | Modeless project-wide QA queue, cooperative book indexing, pinned target navigation, explicit decisions, pause/resume and interrupted-write reconciliation. |
+| src/ReviewProgress.cs | Per-user/project atomic XML decisions and drafts, exclusive session lease and CSV export. |
+| tests/QueueTests.cs | Queue navigation/decisions, stale identity, duplicates, persistence, interrupted writes, Unicode, lease and 16k lookup coverage. |
 | tests/Tests.cs | Standalone test runner, interface doubles via RealProxy, desktop demos, optional read-only local route audit. |
 | scripts/build.ps1 | Compile and test against the local 2.0.100.0 interfaces. |
 | packaging/*.ps1 | Narrow installation/removal; refuses while Paratext is running. |
@@ -47,6 +52,22 @@ The only supported structural writer is a deliberately small marker-rename opera
 - Parsing rich-text paragraphs concatenates each paragraph's `FormattedString.Text` spans before extracting fields. Do not parse bold styling or screenshot OCR.
 - `Reviewer decision needed: No` alone never permits structural/instructional content to become replacement text. Uncertain categories, later replies, conflicting corrections, Latin commentary and alternatives go through review. Text writes continue to reject English instructions and obvious alternatives even after checking the review box.
 - Revert stores one pre/post serialized scope per project in memory. It is guarded against later edits, but does not survive host exit. Native Ctrl+Z and history restore are not yet verified in the real host.
+
+## Queue implementation and recovery
+
+The queue uses `GetNotes(book, 0, true)` per available book on a WinForms timer. Host APIs stay on the UI thread. It yields between books; a single large book can still take time. Only structured QA source comments enter this queue. Order is book/chapter/verse plus stable fingerprint; all pending decisions require user input. The form is shown with `Show(hostForm)` where available, leaving Paratext usable while modeless ownership keeps the queue above asynchronous host passage activation. Navigation uses `OpenTextWindowFor(project, UseExisting, source.Anchor.VerseRefStart)` only on loading the next item or the explicit Return button.
+
+The original passage menu retains strict active-window context checks. Queue-created services instead pin the original IProject and candidate passage. They intentionally do not depend on the active reference/selection, so reference browsing cannot retarget edits. Every write still checks permissions, locks, the exact fresh thread/anchor fingerprint, region, text uniqueness and saved USFM. New source replies between display and Apply cause a refusal.
+
+The public notes API lacks stable IDs. Queue identities hash the source comment's unchanged text, author, timestamp and anchored verse range. They exclude later discussion replies and changing word offsets. Editing the source proposal or verse range creates a new identity; identical duplicates are blocked from all decisions until disambiguated in Paratext. Each apply still uses the stronger full-thread/anchor freshness key. Never substitute a queue identity for the write freshness guard.
+
+Progress is deliberately local per Windows user/project ID, under LocalApplicationData/ParatextNoteSuggestions/Review. There is one atomic XML file per touched proposal, a small current cursor/draft file, and an exclusive open session.lock handle. Records contain source reference/category, exact reviewed text/region, decision, comment and UTC time. Temporary files flush to disk before atomic File.Replace/File.Move; XML entitizes carriage returns to preserve multiline comments. Cache updates follow durable writes. Drafts save after a short debounce, on pause/leave/close and before navigation; consent checkboxes are never restored.
+
+After permission/source/target validation under the write lock, the writer invokes a callback to durably persist `Pending apply` immediately before submission. A progress-save failure prevents submission. Pre-write validation refusals do not create pending intent, so the reviewer can revise/reject normally. On success, persist Applied only after the writer's USFM verification. Any exception stops/pauses; pending records cannot apply or reject again without explicit user reconciliation. Manual-completed decisions require review and a comment. Retry requires a comment and a separate confirmation that no edit occurred. The Scripture writer and progress ledger are not a shared transaction; this pending-state protocol intentionally exposes uncertain outcomes. A disk failure after the USFM write cannot become a silent retry.
+
+Comments are not appended to Paratext notes; notes stay unresolved and local progress does not sync through Send/Receive. CSV export is available, including pending outcomes. This release does not provide concurrent reviewer merging or cross-device resume. The session lease is disposed even if the form is directly disposed without being shown. The queue does not implement a cross-session USFM undo: use Paratext history for old changes.
+
+Tests require unsandboxed Windows filesystem semantics for atomic File.Replace. Under the restricted filesystem shim, Replace returns Access Denied; the queue pauses safely. The same checks pass outside that shim. Tests use ignored artifacts only.
 
 ## Validation and remaining work
 

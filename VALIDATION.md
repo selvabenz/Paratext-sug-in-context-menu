@@ -1,3 +1,11 @@
+## 0.2.0-preview.1 queue validation
+
+94 automated checks pass against synthetic fixtures. Added coverage verifies stable source identities across later discussion, source changes under lock, explicit pinned targets while the active reference changes, no writes during indexing/navigation, decision-driven advancement, saved deferred drafts, duplicate blocking, apply/reject consent, persisted comments, pause/reopen, uncertain apply recovery, exclusive sessions, Unicode/multiline XML and CSV, atomic updates, and 16,000 pending lookups. This does not establish 16,000 real-host edits or a full-project performance benchmark.
+
+The native modeless queue UI was opened with synthetic Tamil data and visually inspected. In the real 9.5.110.1 host, the new command loaded 16,270 unresolved structured proposals from IRVTam, navigated to GEN 1:8, displayed the correction and source-discussion tabs, and paused with saved cursor/draft. No Apply, Reject or manual-completed decision was made on that project. All 85 Scripture/notes hashes matched a baseline captured after saving and closing the prior host session. That baseline is private/ignored; one notes file had already differed from the older release baseline before this queue test.
+
+Full production review, final queue apply/advance acceptance in a disposable project, and full export/Send-Receive remain separate checks. The preceding release's writer evidence below is not a claim of 16,270 real-host edit tests.
+
 # Validation record — 0.1.0-preview.2
 
 Environment inspected: Windows, Paratext executable 9.5.110.1, installed CorePluginInterfaces and PluginInterfaces 2.0.100.0, .NET Framework 4.8 target. Build performed with C# 5 compiler, warnings treated as errors.

@@ -10,7 +10,8 @@ namespace ParatextNoteSuggestions
     public sealed class NoteCandidate
     {
         public Proposal Proposal;
-        public string Key, NoteText, AnchorText, Before, After, DisplayReference;
+        public string Key, StableId, NoteText, AnchorText, Before, After, DisplayReference;
+        public IVerseRef TargetReference;
         public int Book, Chapter, FirstVerse, LastVerse;
         public bool CrossChapter;
     }
@@ -28,6 +29,7 @@ namespace ParatextNoteSuggestions
         readonly int book, chapter, firstVerse, lastVerse;
         readonly string selected;
         readonly string capturedContext;
+        readonly bool queueMode;
         static readonly Dictionary<string, RecoveryRecord> Recovery = new Dictionary<string, RecoveryRecord>();
         public string ProjectName { get { return project.ShortName; } }
         public string ProjectId { get { return projectId; } }
@@ -44,8 +46,28 @@ namespace ParatextNoteSuggestions
             { firstVerse = selection.VerseRefStart.VerseNum; lastVerse = selection.VerseRefEnd.VerseNum; selected = selection.SelectedText; }
             Reference = state.VerseRef.ToString();
         }
+        // A queue pins the project and passage instead of following the active reference window.
+        NoteService(NoteService owner, int targetBook, int targetChapter, int start, int end)
+        {
+            plugin = owner.plugin; host = owner.host; project = owner.project; projectId = owner.projectId;
+            queueMode = true; book = targetBook; chapter = targetChapter; firstVerse = start; lastVerse = end;
+        }
+        public IEnumerable<int> QueueBooks() { return project.AvailableBooks.Select(b => b.Number).OrderBy(b => b); }
+        public List<NoteCandidate> ReadQueueBook(int number)
+        { return new NoteService(this, number, 0, 0, Int32.MaxValue).ReadCandidates().Where(c => c.Proposal.FullNote.TrimStart().StartsWith("[AI-QA ", StringComparison.Ordinal)).ToList(); }
+        public NoteService ForQueueItem(NoteCandidate item)
+        { return new NoteService(this, item.Book, item.Chapter, item.FirstVerse, item.LastVerse); }
+        public NoteCandidate ReloadQueueItem(NoteCandidate item)
+        {
+            var matches = ForQueueItem(item).ReadCandidates().Where(c => c.StableId == item.StableId).ToList();
+            if (matches.Count != 1) throw new InvalidOperationException("The queued source changed, was resolved, or has duplicate identities. Review this item in Paratext before continuing.");
+            return matches[0];
+        }
+        public void Navigate(NoteCandidate item)
+        { host.OpenTextWindowFor(project, OpenWindowBehavior.UseExisting, item.TargetReference); }
         void CheckContext()
         {
+            if (queueMode) return; // All writes still re-read the source under the target project write lock.
             var active = host.ActiveWindowState;
             if (active == null || active.Project == null || active.Project.ID != projectId || active.VerseRef == null || ContextKey(active) != capturedContext)
                 throw new InvalidOperationException("The active project, passage, or selection changed. Close this window and open suggestions again.");
@@ -63,10 +85,10 @@ namespace ParatextNoteSuggestions
             {
                 if (note.IsResolved || note.Anchor == null || note.Anchor.VerseRefStart == null || note.Anchor.VerseRefEnd == null) continue;
                 var a = note.Anchor;
-                if (a.VerseRefStart.BookNum != book || a.VerseRefStart.ChapterNum > chapter || a.VerseRefEnd.ChapterNum < chapter) continue;
+                if (a.VerseRefStart.BookNum != book || (chapter != 0 && (a.VerseRefStart.ChapterNum > chapter || a.VerseRefEnd.ChapterNum < chapter))) continue;
                 int start = a.VerseRefStart.ChapterNum == chapter ? a.VerseRefStart.VerseNum : 0;
                 int end = a.VerseRefEnd.ChapterNum == chapter ? a.VerseRefEnd.VerseNum : Int32.MaxValue;
-                if (start > lastVerse || end < firstVerse) continue;
+                if (chapter != 0 && (start > lastVerse || end < firstVerse)) continue;
                 var comments = note.Comments.ToList();
                 if (comments.Count == 0) continue;
                 string threadKey = ThreadKey(note);
@@ -80,7 +102,10 @@ namespace ParatextNoteSuggestions
                 {
                     var proposal = NoteParser.Parse(source.Text);
                     if (proposal.Route == ProposalRoute.Apply && source.Index != comments.Count - 1) proposal.Route = ProposalRoute.Review;
-                    result.Add(Candidate(note, proposal, threadKey + ":" + source.Index, String.Join("\r\n\r\n--- Comment ---\r\n\r\n", comments.Select(Plain))));
+                    var candidate = Candidate(note, proposal, threadKey + ":" + source.Index, String.Join("\r\n\r\n--- Comment ---\r\n\r\n", comments.Select(Plain)));
+                    var comment = comments[source.Index];
+                    candidate.StableId = NoteParser.Hash(a.VerseRefStart + "|" + a.VerseRefEnd + "|" + comment.Created.ToString("O") + "|" + (comment.Author == null ? "" : comment.Author.Name) + "|" + source.Text);
+                    result.Add(candidate);
                 }
             }
             foreach (var group in result.Where(c => c.Proposal.Original.Length > 0).GroupBy(c => c.Book + ":" + c.Chapter + ":" + c.FirstVerse + ":" + c.LastVerse + ":" + c.Proposal.Region + ":" + c.Proposal.Original))
@@ -103,7 +128,7 @@ namespace ParatextNoteSuggestions
         static NoteCandidate Candidate(IProjectNote note, Proposal proposal, string key, string text)
         {
             var a = note.Anchor;
-            return new NoteCandidate { Proposal = proposal, Key = key, NoteText = text, AnchorText = a.SelectedText, Before = a.BeforeContext, After = a.AfterContext,
+            return new NoteCandidate { Proposal = proposal, Key = key, TargetReference = a.VerseRefStart, NoteText = text, AnchorText = a.SelectedText, Before = a.BeforeContext, After = a.AfterContext,
                 Book = a.VerseRefStart.BookNum, Chapter = a.VerseRefStart.ChapterNum, FirstVerse = a.VerseRefStart.VerseNum, LastVerse = a.VerseRefEnd.VerseNum,
                 CrossChapter = a.VerseRefStart.BookNum != a.VerseRefEnd.BookNum || a.VerseRefStart.ChapterNum != a.VerseRefEnd.ChapterNum,
                 DisplayReference = a.VerseRefStart + (a.VerseRefStart.ToString() == a.VerseRefEnd.ToString() ? "" : " – " + a.VerseRefEnd) };
@@ -115,7 +140,7 @@ namespace ParatextNoteSuggestions
             if (matches[0].CrossChapter) throw new InvalidOperationException("This preview does not apply cross-chapter or cross-book edits. Review the note in Paratext.");
             return matches[0];
         }
-        public void Apply(NoteCandidate candidate, string original, string replacement, ContentRegion region, bool reviewed, bool explicitDeletion = false)
+        public void Apply(NoteCandidate candidate, string original, string replacement, ContentRegion region, bool reviewed, bool explicitDeletion = false, Action beforeSubmit = null)
         {
             CheckContext();
             if (region == ContentRegion.Structure) throw new InvalidOperationException("Choose the structural marker review action for this proposal.");
@@ -145,6 +170,8 @@ namespace ParatextNoteSuggestions
                 tokens[match.TokenIndex] = new ChangedTextToken(old, ExactEditor.Replace(old.Text, match));
                 string expected = project.ConvertToUSFMString(tokens);
                 if (revoked) throw new InvalidOperationException("The write lock was withdrawn. No edit was submitted.");
+                if (beforeSubmit != null) beforeSubmit();
+                if (revoked) throw new InvalidOperationException("The write lock was withdrawn before submission.");
                 var recovery = new RecoveryRecord { ProjectId = projectId, Book = candidate.Book, Chapter = scope, Before = before, After = expected };
                 Recovery[projectId] = recovery;
                 project.PutUSFMTokens(writeLock, tokens, candidate.Book);
@@ -155,7 +182,7 @@ namespace ParatextNoteSuggestions
         }
         // Deliberately narrow structural operation: marker rename with identical associated text.
         // Verse/chapter numbering, note boundaries, attributes and verse exchanges remain review-only.
-        public void ApplyMarkerRename(NoteCandidate candidate)
+        public void ApplyMarkerRename(NoteCandidate candidate, Action beforeSubmit = null)
         {
             CheckContext();
             var p = candidate.Proposal;
@@ -190,6 +217,8 @@ namespace ParatextNoteSuggestions
                 var reparsed = project.ConvertToUSFMTokens(expected, candidate.Book, candidate.Chapter, 0).ToList();
                 if (project.ConvertToUSFMString(reparsed) != expected) throw new InvalidOperationException("Paratext's USFM round-trip changed the structural proposal; review it manually.");
                 if (revoked) throw new InvalidOperationException("The write lock was withdrawn.");
+                if (beforeSubmit != null) beforeSubmit();
+                if (revoked) throw new InvalidOperationException("The write lock was withdrawn before submission.");
                 Recovery[projectId] = new RecoveryRecord { ProjectId = projectId, Book = candidate.Book, Chapter = candidate.Chapter, Before = before, After = expected };
                 project.PutUSFMTokens(writeLock, reparsed, candidate.Book);
                 writeLock.SendNotifications(); Verify(candidate.Book, candidate.Chapter, expected);

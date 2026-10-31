@@ -11,17 +11,18 @@ using Paratext.PluginInterfaces;
 [assembly: AssemblyDescription("Category-aware QA note corrections for Paratext 9.5")]
 [assembly: AssemblyCompany("selvabenz")]
 [assembly: AssemblyVersion("0.1.0.0")]
-[assembly: AssemblyFileVersion("0.1.0.2")]
+[assembly: AssemblyFileVersion("0.2.0.1")]
 [assembly: TargetFramework(".NETFramework,Version=v4.8", FrameworkDisplayName = ".NET Framework 4.8")]
 
 namespace ParatextNoteSuggestions
 {
     public sealed class NoteSuggestionsPlugin : IParatextStandalonePlugin
     {
+        static readonly Dictionary<string, QueueForm> Queues = new Dictionary<string, QueueForm>();
         public string Name { get { return "Note Suggestions"; } }
         public string Publisher { get { return "selvabenz"; } }
-        public Version Version { get { return new Version(0, 1, 0, 2); } }
-        public string VersionString { get { return "0.1.0-preview.2"; } }
+        public Version Version { get { return new Version(0, 2, 0, 1); } }
+        public string VersionString { get { return "0.2.0-preview.1"; } }
         public string GetDescription(string locale) { return "Apply exact QA note corrections to project Scripture, with category-aware review."; }
         public IDataFileMerger GetMerger(IPluginHost host, string identifier) { return null; }
         public IEnumerable<PluginMenuEntry> PluginMenuEntries
@@ -30,7 +31,30 @@ namespace ParatextNoteSuggestions
             {
                 yield return new PluginMenuEntry("Note suggestions…", Open, PluginMenuLocation.ScrTextContextMenuDefault);
                 yield return new PluginMenuEntry("Note suggestions…", Open, PluginMenuLocation.ScrTextTools);
+                yield return new PluginMenuEntry("Review note queue…", OpenQueue, PluginMenuLocation.ScrTextContextMenuDefault);
+                yield return new PluginMenuEntry("Review note queue…", OpenQueue, PluginMenuLocation.ScrTextTools);
             }
+        }
+        public void OpenQueue(IPluginHost host, IParatextChildState state)
+        {
+            try
+            {
+                if (state == null || state.Project == null || state.VerseRef == null) throw new InvalidOperationException("Open the Scripture project whose notes you want to review first.");
+                if (host.ApplicationVersion.Major != 9 || host.ApplicationVersion.Minor != 5) throw new InvalidOperationException("This preview targets Paratext 9.5.");
+                QueueForm existing;
+                if (Queues.TryGetValue(state.Project.ID, out existing)) { existing.Show(); existing.WindowState = FormWindowState.Normal; existing.Activate(); return; }
+                string id = state.Project.ID;
+                var form = new QueueForm(new NoteService(this, host, state));
+                Queues.Add(id, form);
+                System.ComponentModel.CancelEventHandler shutdown = delegate(object sender, System.ComponentModel.CancelEventArgs e) { form.Close(); if (!form.IsDisposed) e.Cancel = true; };
+                host.ShuttingDown += shutdown;
+                form.FormClosed += delegate { Queues.Remove(id); host.ShuttingDown -= shutdown; };
+                // Modeless ownership keeps the queue visible when the host asynchronously focuses a verse.
+                // It does not disable the Scripture/reference windows like ShowDialog would.
+                var parent = Form.ActiveForm;
+                if (parent != null && !(parent is QueueForm)) form.Show(parent); else form.Show();
+            }
+            catch (Exception ex) { MessageBox.Show(ex.Message, "Note review queue", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
         }
         public void Open(IPluginHost host, IParatextChildState state)
         {

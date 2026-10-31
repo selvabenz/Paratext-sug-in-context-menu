@@ -6,11 +6,19 @@ Target: **Paratext 9.5.110.1 on Windows**.
 
 ## Status
 
-**0.1.0-preview.2** is a compiled Windows plugin built against Paratext 9.5.110.1 interfaces (2.0.100.0), targeting .NET Framework 4.8. It includes 80 passing checks and real-host tests for loading, exact Scripture/footnote writes, ambiguity refusal, and revert in a disposable project. Export/Send-Receive acceptance remains pending; this is a prerelease.
+**0.2.0-preview.1** is a compiled Windows plugin built against Paratext 9.5.110.1 interfaces (2.0.100.0), targeting .NET Framework 4.8. It includes 94 passing checks and real-host tests for loading, exact Scripture/footnote writes, ambiguity refusal, and revert in a disposable project. Export/Send-Receive acceptance remains pending; this is a prerelease.
 
 Get the package from [GitHub Releases](https://github.com/selvabenz/Paratext-sug-in-context-menu/releases). Read [INSTALL.md](INSTALL.md), [VALIDATION.md](VALIDATION.md), and the [developer handoff](DEVELOPER_HANDOFF.md) before using it.
 
 The user's screenshot shows QA project notes with `Original:`, `Suggested:`, and `Reason:` fields. The menu should surface the existing `Suggested:` correction for the relevant passage. Automatically generating suggestions is outside the initial scope.
+
+## Review thousands of notes
+
+Choose **Review note queue?** in the Scripture right-click or Tools menu. The modeless queue scans unresolved AI-QA proposals across the selected project in Scripture order and opens each passage. Read the full discussion in its tab, choose a literal correction, check the review box, then **Apply and next**. **Reject and next** requires a comment. Nothing advances on a timer.
+
+You can browse reference windows for as long as needed. **Return to queued passage** restores the queued target; browsing never retargets its write. Use **Pause**, **Resume**, **Leave for later**, or close the window. Reopening resumes saved progress and drafts. Reviewed items are skipped. An interrupted/unverified apply is held for explicit reconciliation before another attempt.
+
+Comments and decisions are stored locally on this Windows account and can be exported to CSV. They are not appended to source notes or synchronized by Send/Receive. Source notes remain unresolved. Complex corrections can be performed in Paratext, then recorded with **Completed manually / no change** and a comment. Duplicate source identities require manual disambiguation before a queue decision can be recorded.
 
 ## Intended workflow
 

@@ -47,7 +47,8 @@ namespace NoteSuggestionsTests
         public NoteSuggestionsPlugin Plugin = new NoteSuggestionsPlugin();
         public bool Editable = true, LockAvailable = true, Resolved, IgnorePut, Revoke, ThrowPut;
         public bool LockHeld;
-        public int Writes, Released, Notifications, History, ActiveVerse = 3;
+        public int Writes, Released, Notifications, History, Navigations, ActiveVerse = 3;
+        public List<IComment> Replies = new List<IComment>();
         public string ProjectId = Guid.NewGuid().ToString(), NoteText, AnchorText = "பழைய", Before = "", After = "", DiskFile;
         public IReadOnlyList<ISelection> Selections = new List<ISelection>();
         public Fixture()
@@ -61,7 +62,7 @@ namespace NoteSuggestionsTests
                 switch(m.Name) {
                     case "get_IsResolved": return Resolved;
                     case "get_Anchor": return Anchor;
-                    case "get_Comments": return new List<IComment> { Comment(NoteText) };
+                    case "get_Comments": return new List<IComment> { Comment(NoteText) }.Concat(Replies).ToList();
                     default: throw new NotSupportedException(m.Name);
                 }
             });
@@ -71,6 +72,7 @@ namespace NoteSuggestionsTests
                 switch(m.Name) {
                     case "get_ID": return ProjectId;
                     case "get_ShortName": return "Synthetic Test";
+                    case "get_AvailableBooks": return new List<IBookInfo> { Stub<IBookInfo>.Create((bm, ba) => bm.Name == "get_Number" ? (object)1 : (object)"GEN") };
                     case "GetNotes": return Notes;
                     case "CanEdit": return Editable;
                     case "RequestWriteLock":
@@ -99,7 +101,7 @@ namespace NoteSuggestionsTests
                 switch(m.Name) { case "get_Project": return Project; case "get_VerseRef": return MakeRef(1, ActiveVerse); case "get_Selections": return Selections; default: throw new NotSupportedException(m.Name); }
             });
             Host = Stub<IPluginHost>.Create((m, a) => {
-                switch(m.Name) { case "get_ActiveWindowState": return State; case "get_ApplicationVersion": return new Version(9,5,110,1); default: throw new NotSupportedException("host."+m.Name); }
+                switch(m.Name) { case "get_ActiveWindowState": return State; case "get_ApplicationVersion": return new Version(9,5,110,1); case "OpenTextWindowFor": Navigations++; return null; default: throw new NotSupportedException("host."+m.Name); }
             });
         }
         public NoteService Service() { return new NoteService(Plugin, Host, State); }
@@ -140,7 +142,7 @@ namespace NoteSuggestionsTests
     public static class Program
     {
         static int passed, failed;
-        static void Test(string name, Action action) { try { action(); passed++; Console.WriteLine("PASS " + name); } catch(Exception ex) { failed++; Console.WriteLine("FAIL " + name + ": " + ex.Message); } }
+        static void Test(string name, Action action) { try { action(); passed++; Console.WriteLine("PASS " + name); } catch(Exception ex) { failed++; Console.WriteLine("FAIL " + name + ": " + ex.ToString()); } }
         static void Eq<T>(T expected, T actual) { if (!Object.Equals(expected,actual)) throw new Exception("Expected " + expected + "; got " + actual); }
         static void Reject(Action action) { try { action(); } catch(InvalidOperationException) { return; } throw new Exception("Expected a refusal"); }
         static void Apply(Fixture f, bool reviewed = false) { var s=f.Service(); var n=s.ReadCandidates()[0]; s.Apply(n,n.Proposal.Original,n.Proposal.Suggested,n.Proposal.Region,reviewed); }
@@ -168,6 +170,11 @@ namespace NoteSuggestionsTests
                 Console.WriteLine("Stored QA comments inspected read-only: " + count + ". Routing only; applicability and live thread status not established.");
                 return 0;
             }
+            if (args.Contains("--queue-demo"))
+            {
+                Application.EnableVisualStyles(); var f = new Fixture();
+                Application.Run(new QueueForm(f.Service(), Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "queue-demo-" + Guid.NewGuid().ToString("N")))); return 0;
+            }
             if (args.Contains("--menu-demo"))
             {
                 Application.EnableVisualStyles(); var f = new Fixture();
@@ -184,6 +191,7 @@ namespace NoteSuggestionsTests
                 f.DiskFile=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"synthetic-demo.sfm"); File.WriteAllText(f.DiskFile,f.Serialize(f.Tokens));
                 var svc=f.Service(); Application.Run(new ReviewForm(svc,svc.ReadCandidates())); return 0;
             }
+            QueueTests.Run(Test);
             foreach(string category in Proposal.Categories)
             {
                 string captured=category;
