@@ -26,6 +26,33 @@ namespace NoteSuggestionsTests
         }
         public static void Run(Action<string, Action> test)
         {
+            test("unreadable resolved legacy discussion does not stop indexing or unrelated resolution", delegate {
+                var f = new Fixture(); f.Notes.Add(Unreadable(f, true)); string root = Root();
+                using (var q = QueueTests.Queue(f, root))
+                {
+                    Check(Field<ReviewSession>(q, "session").WarningCount == 1 && !Field<NoteCandidate>(q, "current").Unreadable);
+                    Field<TextBox>(q, "comment").Text = "Reviewed readable note"; Call(q, "Decide", "Rejected"); Check(f.Resolved && f.Resolves == 1); q.Close();
+                }
+                using (var p = new ReviewProgress(root, f.ProjectId)) Check(File.ReadAllText(ReviewSession.Latest(p.DirectoryPath)).Contains("Manual attention: unreadable"));
+            });
+            test("unreadable unresolved discussion stays explicitly blocked and can be deferred", delegate {
+                var f = new Fixture(); f.Notes.Clear(); f.Notes.Add(Unreadable(f, false));
+                using (var q = QueueTests.Queue(f, Root()))
+                {
+                    var current = Field<NoteCandidate>(q, "current"); Check(current.Unreadable);
+                    Field<TextBox>(q, "comment").Text = "Do not auto-handle"; Field<CheckBox>(q, "reviewed").Checked = true;
+                    Check(!Field<Button>(q, "apply").Enabled && !Field<Button>(q, "reject").Enabled && !Field<Button>(q, "manual").Enabled);
+                    bool refused = false; try { f.Service().Apply(current, "பழைய", "புதிய", ContentRegion.Body, true); } catch (InvalidOperationException) { refused = true; }
+                    Check(refused && f.Writes == 0 && f.Resolves == 0); Call(q, "Next"); q.Close();
+                }
+            });
+            test("a warning-only stop saves an honest report without invented decisions", delegate {
+                string root = Root(), project = Project(root, "project-id"); using (var p = new ReviewProgress(root, "project-id"))
+                {
+                    var s = new ReviewSession(p.DirectoryPath, "project-id", "Test", "Reviewer A"); s.AddWarning("GEN 1:3 - legacy discussion could not be read <tag>");
+                    string path = s.WriteReport(project, 100, 0, "Paused"); Check(File.Exists(path) && s.Records().Count == 0 && File.ReadAllText(path).Contains("&lt;tag&gt;"));
+                }
+            });
             test("five compiled presets fill an editable comment without taking a decision", delegate {
                 var f = new Fixture(); using (var q = QueueTests.Queue(f, Root()))
                 {
@@ -137,6 +164,15 @@ namespace NoteSuggestionsTests
             test("old snapshots remain explicitly unavailable instead of reconstructed", delegate {
                 var r = ReviewRecord.FromXml(new XElement("review", new XAttribute("id", "old"), new XAttribute("outcome", "Rejected")));
                 string html = ReviewReportHtml.Render("Test", "Current User", "session", "", "", "Recovered", 1, 1, new[] { r }); Check(html.Contains("Context not recorded") && html.Contains("Not recorded by older version"));
+            });
+        }
+        static Paratext.PluginInterfaces.IProjectNote Unreadable(Fixture f, bool resolved)
+        {
+            var comment = Stub<Paratext.PluginInterfaces.IComment>.Create((m, a) => {
+                switch (m.Name) { case "get_Contents": throw new ArgumentException("Invalid legacy language tag: LegacyLanguage#Project"); case "get_Created": return new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero); case "get_Author": return null; default: throw new NotSupportedException(m.Name); }
+            });
+            return Stub<Paratext.PluginInterfaces.IProjectNote>.Create((m, a) => {
+                switch (m.Name) { case "get_Anchor": return f.Anchor; case "get_IsResolved": return resolved; case "get_Comments": return new[] { comment }; default: throw new NotSupportedException(m.Name); }
             });
         }
     }

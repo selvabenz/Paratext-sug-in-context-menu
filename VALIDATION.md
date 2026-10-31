@@ -1,8 +1,8 @@
 ## 0.3.0-preview.1 preset/report validation
 
-121 automated checks cover the prior workflow plus editable five-phrase presets, under-lock full context capture, before/after snapshots and reviewer identity, footnote/body preservation, introduction and cross-chapter read snapshots, unchanged rejections, honest manual attribution, unverified attempts, 20 decisions out of 100, cumulative reports without duplicate empty stops, crash recovery, wrong-project refusal, audit path validation/repair, Tamil-safe highlighting, markup escaping and explicit unavailability for older metadata.
+124 automated checks cover the prior workflow plus editable five-phrase presets, under-lock full context capture, before/after snapshots and reviewer identity, footnote/body preservation, introduction and cross-chapter read snapshots, unchanged rejections, honest manual attribution, unverified attempts, 20 decisions out of 100, cumulative reports without duplicate empty stops, crash recovery, wrong-project refusal, audit path validation/repair, Tamil-safe highlighting, markup escaping and explicit unavailability for older metadata.
 
-A synthetic 20/100 HTML report has been opened and visually inspected in the embedded report viewer. Updated-build real-host report generation and preset acceptance remain pending. All private analysis, reports and note data stay in ignored local artifacts.
+A synthetic 20/100 HTML report has been opened and visually inspected in the embedded report viewer. Host logs also revealed a legacy rich-text language tag failure during older queue indexing. Three new regressions verify that an unreadable resolved discussion does not block scanning/resolution of other notes, unreadable unresolved sources cannot be edited/resolved through the queue, and warning-only reports remain explicit. Updated-build real-host report generation and preset acceptance remain pending. All private analysis, reports and note data stay in ignored local artifacts.
 
 ## 0.2.0-preview.2 note resolution validation
 

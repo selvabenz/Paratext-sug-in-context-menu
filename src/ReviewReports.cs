@@ -60,6 +60,8 @@ namespace ParatextNoteSuggestions
         readonly string root, projectId, projectName, reviewer;
         public readonly string Id;
         readonly DateTime started;
+        readonly List<string> warnings = new List<string>();
+        public int WarningCount { get { return warnings.Count; } }
         string lastDigest = "", lastReport = "";
         public ReviewSession(string progressRoot, string id, string name, string user)
         {
@@ -80,24 +82,25 @@ namespace ParatextNoteSuggestions
             string path = EntryPath(root, session, record.AuditId); Directory.CreateDirectory(Path.GetDirectoryName(path)); ReviewProgress.AtomicWrite(path, record.ToXml());
         }
         public void Track(ReviewRecord record) { if (record.AuditId.Length > 0) WriteEntry(root, Id, record); }
+        public void AddWarning(string warning) { if (!warnings.Contains(warning)) { warnings.Add(warning); SaveManifest(""); } }
         public List<ReviewRecord> Records()
         { return Directory.EnumerateFiles(SessionDirectory(root, Id), "*.entry.xml").Select(f => ReviewRecord.FromXml(XElement.Load(f))).OrderBy(r => r.DecisionUtc, StringComparer.Ordinal).ThenBy(r => r.AuditId, StringComparer.Ordinal).ToList(); }
         void SaveManifest(string ended)
         {
             ReviewProgress.AtomicWrite(Path.Combine(SessionDirectory(root, Id), "session.xml"), new XElement("session", new XAttribute("id", Id),
                 new XElement("projectId", projectId), new XElement("projectName", projectName), new XElement("reviewer", reviewer), new XElement("started", started.ToString("O")),
-                new XElement("ended", ended), new XElement("digest", lastDigest), new XElement("report", lastReport)));
+                new XElement("ended", ended), new XElement("digest", lastDigest), new XElement("report", lastReport), new XElement("warnings", warnings.Select(w => new XElement("warning", w)))));
         }
         public string WriteReport(string projectDirectory, int total, int reviewed, string reason)
         {
             var records = Records();
-            if (records.Count == 0) { SaveManifest(reason == "Closed" ? DateTime.UtcNow.ToString("O") : ""); return null; }
+            if (records.Count == 0 && warnings.Count == 0) { SaveManifest(reason == "Closed" ? DateTime.UtcNow.ToString("O") : ""); return null; }
             string folder = ProjectReportDirectory.ReportFolder(projectDirectory, projectId);
-            string digest = NoteParser.Hash(String.Join("|", records.Select(r => r.ToXml().ToString())));
+            string digest = NoteParser.Hash(String.Join("|", records.Select(r => r.ToXml().ToString())) + "|" + String.Join("|", warnings));
             if (digest == lastDigest && File.Exists(lastReport)) { SaveManifest(reason == "Closed" ? DateTime.UtcNow.ToString("O") : ""); return lastReport; }
             Directory.CreateDirectory(folder);
             string path = Path.Combine(folder, "Review-" + DateTime.Now.ToString("yyyyMMdd-HHmmss-fff") + "-" + Id.Substring(0, 8) + "-" + Guid.NewGuid().ToString("N").Substring(0, 6) + ".html");
-            WriteHtml(path, ReviewReportHtml.Render(projectName, reviewer, Id, started.ToString("O"), DateTime.UtcNow.ToString("O"), reason, total, reviewed, records));
+            WriteHtml(path, ReviewReportHtml.Render(projectName, reviewer, Id, started.ToString("O"), DateTime.UtcNow.ToString("O"), reason, total, reviewed, records, warnings));
             lastDigest = digest; lastReport = path;
             ReviewProgress.AtomicWrite(Path.Combine(root, "latest-report.xml"), new XElement("report", path));
             SaveManifest(reason == "Closed" ? DateTime.UtcNow.ToString("O") : ""); return path;
@@ -115,7 +118,7 @@ namespace ParatextNoteSuggestions
         {
             string sessions = Path.Combine(root, "sessions"); if (!Directory.Exists(sessions)) return false;
             return Directory.EnumerateDirectories(sessions).Where(d => Path.GetFileName(d) != currentSession).Any(d =>
-                File.Exists(Path.Combine(d, "session.xml")) && String.IsNullOrEmpty((string)XElement.Load(Path.Combine(d, "session.xml")).Element("ended")) && Directory.EnumerateFiles(d, "*.entry.xml").Any());
+                File.Exists(Path.Combine(d, "session.xml")) && String.IsNullOrEmpty((string)XElement.Load(Path.Combine(d, "session.xml")).Element("ended")) && (Directory.EnumerateFiles(d, "*.entry.xml").Any() || XElement.Load(Path.Combine(d, "session.xml")).Elements("warnings").Elements("warning").Any()));
         }
         public static int Recover(string progressRoot, string currentSession, string projectDirectory, string projectId)
         {
@@ -128,13 +131,14 @@ namespace ParatextNoteSuggestions
                 var m = XElement.Load(manifest); if (!String.IsNullOrEmpty((string)m.Element("ended"))) continue;
                 if ((string)m.Element("projectId") != projectId) throw new InvalidOperationException("Recovered session belongs to a different project. Report generation stopped.");
                 var records = Directory.EnumerateFiles(directory, "*.entry.xml").Select(f => ReviewRecord.FromXml(XElement.Load(f))).OrderBy(r => r.DecisionUtc).ToList();
-                if (records.Count == 0) continue;
-                string digest = NoteParser.Hash(String.Join("|", records.Select(r => r.ToXml().ToString())));
+                var warnings = m.Elements("warnings").Elements("warning").Select(w => w.Value).ToList();
+                if (records.Count == 0 && warnings.Count == 0) continue;
+                string digest = NoteParser.Hash(String.Join("|", records.Select(r => r.ToXml().ToString())) + "|" + String.Join("|", warnings));
                 if ((string)m.Element("digest") != digest || !File.Exists((string)m.Element("report")))
                 {
                     string folder = ProjectReportDirectory.ReportFolder(projectDirectory, projectId); Directory.CreateDirectory(folder);
                     string path = Path.Combine(folder, "Review-" + DateTime.Now.ToString("yyyyMMdd-HHmmss-fff") + "-recovered-" + Guid.NewGuid().ToString("N").Substring(0, 8) + ".html");
-                    WriteHtml(path, ReviewReportHtml.Render((string)m.Element("projectName"), (string)m.Element("reviewer"), (string)m.Attribute("id"), (string)m.Element("started"), DateTime.UtcNow.ToString("O"), "Recovered interrupted session", 0, 0, records));
+                    WriteHtml(path, ReviewReportHtml.Render((string)m.Element("projectName"), (string)m.Element("reviewer"), (string)m.Attribute("id"), (string)m.Element("started"), DateTime.UtcNow.ToString("O"), "Recovered interrupted session", 0, 0, records, warnings));
                     m.SetElementValue("report", path); m.SetElementValue("digest", digest); count++;
                     ReviewProgress.AtomicWrite(Path.Combine(progressRoot, "latest-report.xml"), new XElement("report", path));
                 }
@@ -159,13 +163,19 @@ namespace ParatextNoteSuggestions
             var selected = after ? b : a;
             return H(String.Concat(selected.Take(prefix))) + "<mark style='background:" + (after ? "#bcebd0" : "#ffd4cf") + ";color:#17273c'>" + H(String.Concat(selected.Skip(prefix).Take(selected.Length - prefix - suffix))) + "</mark>" + H(String.Concat(selected.Skip(selected.Length - suffix)));
         }
-        public static string Render(string project, string reviewer, string session, string started, string ended, string reason, int total, int reviewed, IList<ReviewRecord> records)
+        public static string Render(string project, string reviewer, string session, string started, string ended, string reason, int total, int reviewed, IList<ReviewRecord> records, IList<string> warnings = null)
         {
             var b = new StringBuilder();
             b.Append("<!doctype html><html lang='en'><head><meta charset='utf-8'><meta http-equiv='X-UA-Compatible' content='IE=edge'><meta name='viewport' content='width=device-width,initial-scale=1'><meta http-equiv='Content-Security-Policy' content=\"default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'none'; connect-src 'none'\"><title>Review Queue - ").Append(H(project)).Append("</title><style>");
             b.Append("*{box-sizing:border-box}header,main,article,section,details,summary{display:block}body{margin:0;background:#f2f5fa;color:#17273c;font:15px 'Segoe UI',Arial,sans-serif}header{background:#142d4c;color:white;padding:28px 32px}h1{margin:0 0 8px;font-size:30px}header p{color:#d5e3f4;margin:8px 0}main{max-width:1400px;margin:auto;padding:22px}.stats{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:18px}.stat{background:white;border:1px solid #dbe4ef;border-radius:12px;padding:15px;min-width:140px;margin-right:10px;margin-bottom:10px}.stat strong{display:block;font-size:28px}.tools{background:white;padding:15px;border:1px solid #dbe4ef;border-radius:12px;margin-bottom:20px}input,select,button{font:inherit;padding:9px;border:1px solid #bac9db;border-radius:6px;margin:3px}input{min-width:240px}.entry{background:white;border:1px solid #d7e2ef;border-radius:14px;margin-bottom:22px;overflow:hidden}.meta{padding:18px 22px;background:#fbfcfe;border-bottom:1px solid #dde6ef}.meta h2{margin:0 0 9px;font-size:20px}.badge{display:inline-block;border-radius:20px;padding:4px 10px;background:#e7eef8;margin:0 6px 5px 0}.Applied{background:#dff4e7;color:#135c31}.Rejected{background:#fff0da;color:#7b4a12}.comment{padding:16px 22px;border-bottom:1px solid #e4eaf2;white-space:pre-wrap}.panes{display:table;table-layout:fixed;width:100%}.pane{display:table-cell;width:50%;vertical-align:top;padding:18px 22px}.before{background:#fff7f6}.after{background:#f1fbf6}.pane h3{margin:0 0 10px;font-size:15px}pre{font:17px/1.7 'Nirmala UI','Meera Inimai','Segoe UI',sans-serif;white-space:pre-wrap;overflow-wrap:anywhere;word-wrap:break-word;margin:0}.target{font-size:15px;white-space:pre-wrap;border-top:1px solid #dce5ed;margin-top:16px;padding-top:12px}.evidence{padding:12px 22px;color:#425977;background:#f6f8fc;white-space:pre-wrap}details{padding:15px 22px}summary{cursor:pointer;font-weight:600}small{font-size:13px;color:#526984}.empty{color:#8a4251}.hidden{display:none}@media(max-width:750px){.panes,.pane{display:block;width:100%}main{padding:12px}}@media print{header{background:white;color:black}.tools{display:none}.entry{break-inside:avoid;border:1px solid #aaa}main{padding:0}.hidden{display:block}} </style></head><body><header><h1>Review Queue <span style='font-weight:400'>/ ");
             b.Append(H(project)).Append("</span></h1><p>Session report - ").Append(H(reason)).Append("</p><p>Paratext reviewer: <strong>").Append(H(reviewer)).Append("</strong> | Started (UTC): ").Append(H(started)).Append(" | Report (UTC): ").Append(H(ended)).Append("</p></header><main><div class='stats'>");
             Stat(b, records.Count, "Decisions / recorded attempts"); Stat(b, records.Count(r => r.Outcome == "Applied"), "Applied"); Stat(b, records.Count(r => r.Outcome == "Rejected"), "Rejected"); Stat(b, records.Count(r => r.Outcome == "Completed manually"), "Manually completed"); Stat(b, records.Count(r => r.Outcome == "Pending apply" || r.ResolutionPending), "Need follow-up");
+            if (warnings != null && warnings.Count > 0)
+            {
+                b.Append("</div><div class='tools'><h2>Manual attention: unreadable source discussions</h2><p>These discussions could not be read through Paratext's plugin API. They were not silently treated as reviewed or resolved. Other readable notes can continue.</p><ul>");
+                foreach (string warning in warnings) b.Append("<li>").Append(H(warning)).Append("</li>");
+                b.Append("</ul></div><div>");
+            }
             b.Append("</div><p><strong>Queue at stop:</strong> ").Append(reviewed).Append(" reviewed / ").Append(total).Append(" indexed. This report contains this session's decisions and recovered actions, not every project note. Previously edited text is never reconstructed from today's Scripture.</p><div class='tools'><input id='search' placeholder='Search verse, reviewer, comment or text' oninput='filterRows()'><select id='outcome' onchange='filterRows()'><option value=''>All decisions</option><option>Applied</option><option>Rejected</option><option>Completed manually</option><option>Pending apply</option></select><button onclick='window.print()'>Print / save PDF</button><span id='visible'></span></div>");
             foreach (var r in records)
             {

@@ -59,6 +59,8 @@ The timestamp in the filename is local Windows time; decision/action times insid
 
 Applied context is captured under the write lock before submission and verified by saved-USFM comparison afterward. A pending/unverified apply displays **EXPECTED AFTER - NOT VERIFIED**. Rejected passages show unchanged text. Manual comparisons are observed load/decision snapshots, not verified editor attribution. The Paratext user making the decision and latest action is recorded separately. Older decisions that predate this feature explicitly lack full snapshots/reviewer identity; they are not reconstructed from current Scripture.
 
+Some older rich-text discussions can contain language tags that the Paratext plugin API cannot read. The queue records a visible warning and continues other notes. Unreadable unresolved notes are blocked from automatic decisions and can be left for manual handling; already-resolved warnings are informational. Warnings also appear in the report and are not silently counted as reviewed.
+
 Local session audit entries survive a crash. On a later stop/report request, interrupted sessions receive recovered reports where needed. HTML reports are ordinary files requested in the project folder; the plugin does not initiate Send/Receive for them. Reviewer comments remain outside Paratext note discussions.
 
 ## Recovery and removal

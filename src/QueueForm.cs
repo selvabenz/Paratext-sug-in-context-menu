@@ -151,7 +151,7 @@ namespace ParatextNoteSuggestions
         }
         string GenerateReports(string reason, bool prompt)
         {
-            if (session.Records().Count == 0 && !ReviewSession.NeedsRecovery(progress.DirectoryPath, session.Id)) return null;
+            if (session.Records().Count == 0 && session.WarningCount == 0 && !ReviewSession.NeedsRecovery(progress.DirectoryPath, session.Id)) return null;
             if (reportProjectDirectory == null || !ProjectReportDirectory.Matches(reportProjectDirectory, owner.ProjectId))
             {
                 if (prompt) ChooseReportFolder();
@@ -167,6 +167,7 @@ namespace ParatextNoteSuggestions
                 int book = books.Peek();
                 foreach (var c in owner.ReadQueueBook(book, true))
                 {
+                    if (c.Unreadable) session.AddWarning(c.DisplayReference + " - unreadable note discussion (" + (c.IsResolved ? "already resolved" : "unresolved; handle manually") + "). " + c.NoteText);
                     var saved = progress.Get(c.StableId);
                     if (c.IsResolved && (saved == null || !saved.Completed || String.IsNullOrEmpty(saved.Resolution))) continue;
                     if (!seen.Add(c.StableId)) duplicateIds.Add(c.StableId);
@@ -179,6 +180,7 @@ namespace ParatextNoteSuggestions
             indexTimer.Stop(); indexing = false;
             int missing = progress.Outstanding().Count(r => !seen.Contains(r.Id));
             if (missing > 0) recoveryNotice = "\r\n" + missing + " interrupted decision(s) have missing/changed sources. Export decisions and inspect Paratext history/notes manually.";
+            if (session.WarningCount > 0) recoveryNotice += "\r\n" + session.WarningCount + " unreadable discussion(s); other notes continue. See the report for manual attention.";
             items.Sort((a, b) => { int n = a.Book.CompareTo(b.Book); if (n == 0) n = a.Chapter.CompareTo(b.Chapter); if (n == 0) n = a.FirstVerse.CompareTo(b.FirstVerse); return n == 0 ? StringComparer.Ordinal.Compare(a.StableId, b.StableId) : n; });
             completed = items.Count(c => { var r = progress.Get(c.StableId); return r != null && r.Completed; });
             var cursor = progress.Cursor();
@@ -205,6 +207,7 @@ namespace ParatextNoteSuggestions
             try { current = owner.ReloadQueueItem(current, ResolutionPending()); }
             catch (Exception ex) { blocked = true; status.Text = ex.Message; }
             if (duplicateIds.Contains(current.StableId)) blocked = true;
+            if (current.Unreadable) blocked = true;
             var previous = progress.Get(current.StableId);
             var draft = progress.Cursor();
             populating = true;
@@ -223,6 +226,7 @@ namespace ParatextNoteSuggestions
             heading.Text = owner.ProjectName + " | " + current.DisplayReference + " | " + current.Proposal.Pass + " | " + current.Proposal.Category + "\r\n" + completed + " / " + items.Count + " reviewed - " + current.Proposal.Route + recoveryNotice;
             if (!blocked) status.Text = ResolutionPending() ? "Decision saved locally. Retry note resolution to finish; the Scripture correction will not be repeated." : Pending() ? "An earlier apply did not finish recording. Inspect Paratext history and the passage, then confirm completed manually or confirm no edit before retrying." : "Waiting for Apply or Reject. Browse references freely. Comments/progress stay local; the note resolves when all its proposals have decisions.";
             else status.Text = "Source changed, unavailable, or duplicate identity. Automatic Apply is blocked. Inspect in Paratext; leave for later or record a commented manual decision.";
+            if (current.Unreadable) status.Text = "Paratext cannot read this discussion. Decisions are blocked for this note; inspect/fix it in Paratext or Leave for later. Other notes can continue.";
             SaveDraft(); EnableActions();
             owner.Navigate(current);
             Activate();
@@ -250,8 +254,8 @@ namespace ParatextNoteSuggestions
             bool decisionSaved = current != null && (progress.Get(current.StableId) ?? new ReviewRecord()).Completed;
             bool duplicate = current != null && duplicateIds.Contains(current.StableId);
             apply.Enabled = ready && !decisionSaved && !pending && !blocked && reviewed.Checked && current.Proposal.Route != ProposalRoute.NoChange && (replacement.Text.Length > 0 || deletion.Checked);
-            reject.Enabled = ready && !decisionSaved && !pending && !duplicate && comment.Text.Trim().Length > 0;
-            manual.Enabled = ready && !decisionSaved && !duplicate && reviewed.Checked && comment.Text.Trim().Length > 0;
+            reject.Enabled = ready && !current.Unreadable && !decisionSaved && !pending && !duplicate && comment.Text.Trim().Length > 0;
+            manual.Enabled = ready && !current.Unreadable && !decisionSaved && !duplicate && reviewed.Checked && comment.Text.Trim().Length > 0;
             retry.Visible = pending; retry.Enabled = ready && pending && comment.Text.Trim().Length > 0;
             resolve.Visible = ResolutionPending(); resolve.Enabled = ready && ResolutionPending() && !duplicate;
             later.Enabled = ready; back.Enabled = current != null && !busy;

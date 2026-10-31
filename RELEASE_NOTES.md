@@ -9,7 +9,8 @@ Adds editable reusable comments and full session review reports.
 - Persist full audit snapshots before submission; clearly distinguish verified writes, unchanged rejections, manual observations and unverified attempts.
 - Recover interrupted session reports and preserve older decisions without inventing historical context or reviewer identity.
 - Verify the project folder identity; report failures preserve local decisions and offer retry.
-- 121 automated checks pass. Real-host preset/report acceptance is tracked in VALIDATION.md.
+- Continue scanning past unreadable legacy-language discussions with visible report warnings; block decisions on unreadable sources and preserve other readable notes.
+- 124 automated checks pass. Real-host preset/report acceptance is tracked in VALIDATION.md.
 
 ---
 

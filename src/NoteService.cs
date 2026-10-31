@@ -10,10 +10,10 @@ namespace ParatextNoteSuggestions
     public sealed class NoteCandidate
     {
         public Proposal Proposal;
-        public string Key, StableId, DiscussionKey, NoteText, AnchorText, Before, After, DisplayReference;
+        public string Key, StableId, DiscussionKey, NoteText, AnchorText, Before, After, DisplayReference, SourceCreated, SourceAuthor;
         public IVerseRef TargetReference;
         public int Book, Chapter, FirstVerse, LastVerse, EndBook, EndChapter;
-        public bool CrossChapter, IsResolved;
+        public bool CrossChapter, IsResolved, Unreadable;
     }
     public sealed class PassageEvidence
     {
@@ -59,7 +59,7 @@ namespace ParatextNoteSuggestions
         }
         public IEnumerable<int> QueueBooks() { return project.AvailableBooks.Select(b => b.Number).OrderBy(b => b); }
         public List<NoteCandidate> ReadQueueBook(int number, bool includeResolved = false)
-        { return new NoteService(this, number, 0, 0, Int32.MaxValue).ReadCandidates(includeResolved).Where(c => c.Proposal.FullNote.TrimStart().StartsWith("[AI-QA ", StringComparison.Ordinal)).ToList(); }
+        { return new NoteService(this, number, 0, 0, Int32.MaxValue).ReadCandidates(includeResolved).Where(c => c.Unreadable || c.Proposal.FullNote.TrimStart().StartsWith("[AI-QA ", StringComparison.Ordinal)).ToList(); }
         public NoteService ForQueueItem(NoteCandidate item)
         { return new NoteService(this, item.Book, item.Chapter, item.FirstVerse, item.LastVerse); }
         public NoteCandidate ReloadQueueItem(NoteCandidate item, bool includeResolved = false)
@@ -109,6 +109,8 @@ namespace ParatextNoteSuggestions
                 int start = a.VerseRefStart.ChapterNum == chapter ? a.VerseRefStart.VerseNum : 0;
                 int end = a.VerseRefEnd.ChapterNum == chapter ? a.VerseRefEnd.VerseNum : Int32.MaxValue;
                 if (chapter != 0 && (start > lastVerse || end < firstVerse)) continue;
+                try
+                {
                 var comments = note.Comments.ToList();
                 if (comments.Count == 0) continue;
                 string threadKey = ThreadKey(note);
@@ -125,7 +127,20 @@ namespace ParatextNoteSuggestions
                     var candidate = Candidate(note, proposal, threadKey + ":" + source.Index, String.Join("\r\n\r\n--- Comment ---\r\n\r\n", comments.Select(Plain)));
                     var comment = comments[source.Index];
                     candidate.StableId = SourceId(note, comment);
+                    candidate.SourceCreated = comment.Created.ToString("O"); candidate.SourceAuthor = comment.Author == null ? "" : comment.Author.Name;
                     result.Add(candidate);
+                }
+                }
+                catch (ArgumentException ex)
+                {
+                    // Legacy rich-text language tags can fail in the host's lazy Contents getter.
+                    // Keep an explicit blocked item/warning; do not lose the rest of the book.
+                    string warning = "Paratext could not read this note discussion. Inspect its original note and language formatting in Paratext; leave it for later to continue. " + ex.Message;
+                    var item = Candidate(note, NoteParser.Parse(warning), "", warning, false);
+                    item.Unreadable = true;
+                    item.Key = item.StableId = NoteParser.Hash("UNREADABLE|" + projectId + "|" + a.VerseRefStart + "|" + a.VerseRefEnd + "|" +
+                        String.Join("|", note.Comments.Select(c => c.Created.ToString("O") + ":" + (c.Author == null ? "" : c.Author.Name))));
+                    result.Add(item);
                 }
             }
             foreach (var group in result.Where(c => c.Proposal.Original.Length > 0).GroupBy(c => c.Book + ":" + c.Chapter + ":" + c.FirstVerse + ":" + c.LastVerse + ":" + c.Proposal.Region + ":" + c.Proposal.Original))
@@ -152,7 +167,7 @@ namespace ParatextNoteSuggestions
         List<IProjectNote> FindSourceNotes(NoteCandidate candidate)
         {
             return project.GetNotes(candidate.Book, candidate.Chapter, false).Where(n => n.Anchor != null && n.Anchor.VerseRefStart != null && n.Anchor.VerseRefEnd != null &&
-                n.Comments.Count(c => SourceId(n, c) == candidate.StableId) > 0).ToList();
+                n.Comments.Where(c => c.Created.ToString("O") == candidate.SourceCreated && (c.Author == null ? "" : c.Author.Name) == candidate.SourceAuthor).Any(c => SourceId(n, c) == candidate.StableId)).ToList();
         }
         // Separate from the Scripture transaction: the durable decision must already exist.
         public bool ResolveReviewedThread(NoteCandidate candidate, string reviewedDiscussion, Func<string, bool> completed, out List<string> sourceIds)
@@ -177,10 +192,10 @@ namespace ParatextNoteSuggestions
             }
             return true;
         }
-        static NoteCandidate Candidate(IProjectNote note, Proposal proposal, string key, string text)
+        static NoteCandidate Candidate(IProjectNote note, Proposal proposal, string key, string text, bool readDiscussion = true)
         {
             var a = note.Anchor;
-            return new NoteCandidate { Proposal = proposal, Key = key, DiscussionKey = DiscussionKey(note), IsResolved = note.IsResolved, TargetReference = a.VerseRefStart, NoteText = text, AnchorText = a.SelectedText, Before = a.BeforeContext, After = a.AfterContext,
+            return new NoteCandidate { Proposal = proposal, Key = key, DiscussionKey = readDiscussion ? DiscussionKey(note) : "", IsResolved = note.IsResolved, TargetReference = a.VerseRefStart, NoteText = text, AnchorText = a.SelectedText, Before = a.BeforeContext, After = a.AfterContext,
                 Book = a.VerseRefStart.BookNum, Chapter = a.VerseRefStart.ChapterNum, FirstVerse = a.VerseRefStart.VerseNum, LastVerse = a.VerseRefEnd.VerseNum,
                 EndBook = a.VerseRefEnd.BookNum, EndChapter = a.VerseRefEnd.ChapterNum,
                 CrossChapter = a.VerseRefStart.BookNum != a.VerseRefEnd.BookNum || a.VerseRefStart.ChapterNum != a.VerseRefEnd.ChapterNum,
@@ -190,6 +205,7 @@ namespace ParatextNoteSuggestions
         {
             var matches = ReadCandidates().Where(c => c.Key == candidate.Key).ToList();
             if (matches.Count != 1) throw new InvalidOperationException("The source note changed, was resolved, or is ambiguous. Refresh the notes before editing.");
+            if (matches[0].Unreadable) throw new InvalidOperationException("Paratext could not read the source discussion. No automatic edit is permitted; handle the note in Paratext.");
             if (matches[0].CrossChapter) throw new InvalidOperationException("This preview does not apply cross-chapter or cross-book edits. Review the note in Paratext.");
             return matches[0];
         }

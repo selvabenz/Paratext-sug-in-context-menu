@@ -6,7 +6,7 @@
 
 The preceding 0.1.0-preview.2 plugin was installed and loaded in the user's real Paratext host. Test writes targeted a separate synthetic NSTest project, with on-disk USFM comparisons for body and footnote corrections, ambiguity refusal, and revert. The user's session was saved and restarted normally with administrator approval for installation. IRVTam was not targeted by any plugin edit. See VALIDATION.md for the remaining export/Send-Receive boundary.
 
-The new queue has also loaded 16,270 unresolved QA proposals in the real host, navigated to the first passage and paused without a production decision. All 85 Scripture/note hashes matched the immediate pre-queue baseline. The final installed build passed disposable-project Apply-and-next with an exact on-disk USFM comparison, commented Reject-and-next with no USFM change, Footnote region retention, and modeless reference browsing at a different verse. 121 synthetic checks pass.
+The new queue has also loaded 16,270 unresolved QA proposals in the real host, navigated to the first passage and paused without a production decision. All 85 Scripture/note hashes matched the immediate pre-queue baseline. The final installed build passed disposable-project Apply-and-next with an exact on-disk USFM comparison, commented Reject-and-next with no USFM change, Footnote region retention, and modeless reference browsing at a different verse. 124 synthetic checks pass.
 
 ## Build
 
@@ -95,7 +95,9 @@ The public project API has no filesystem path. Automatic detection checks known 
 
 HTML is self-contained with no external assets/network requests. All note/Scripture/user fields are HTML encoded; fixed ES5 filter code never interpolates user data into script. Text-element diff boundaries preserve Tamil combining sequences. The modeless WebBrowser viewer uses an in-memory copy of the generated HTML, cancels external navigation/popups and offers the validated local file in the default browser. CSS includes legacy embedded-browser fallbacks. No global browser-emulation or security setting is changed. Private reports, source comments and local audit records are never committed or added to release archives.
 
-121 checks pass including the material report paths. Real-host report acceptance is recorded separately in VALIDATION.md. .NET Framework still has ordinary Windows path-length limits; test roots are intentionally short. Do not change the established lock/checkpoint order or regional text guards.
+An additional real-host log investigation found legacy rich-text language tags that throw ArgumentException inside CommentWrapper.Contents. ReadCandidates now isolates that per discussion instead of stopping the book scan. Such notes create explicit unreadable placeholders/warnings: unresolved ones cannot Apply/Reject/manual-complete through the queue, and already-resolved ones are informational. No invalid note XML is rewritten or silently treated as reviewed. Fresh also refuses an unreadable candidate, including the one-off review path. Resolution lookup first narrows comments by source author/timestamp, so an unrelated malformed legacy comment cannot prevent resolving a readable target; matching ambiguous/unreadable content still refuses. Warnings persist in session manifests and appear in HTML even in a warning-only session.
+
+124 checks pass including the material report paths. Real-host report acceptance is recorded separately in VALIDATION.md. .NET Framework still has ordinary Windows path-length limits; test roots are intentionally short. Do not change the established lock/checkpoint order or regional text guards.
 
 ## Validation and remaining work
 
