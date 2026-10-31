@@ -28,6 +28,7 @@
     <Compile Include="ReviewForm.cs" />
     <Compile Include="ReviewProgress.cs" />
     <Compile Include="QueueForm.cs" />
+    <Compile Include="ReviewReports.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <Target Name="PluginExtension" AfterTargets="Build"><Copy SourceFiles="$(TargetPath)" DestinationFiles="$(TargetDir)$(TargetName).ptxplg" /></Target>

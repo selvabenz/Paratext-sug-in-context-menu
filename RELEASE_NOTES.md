@@ -1,3 +1,18 @@
+# 0.3.0-preview.1
+
+Adds editable reusable comments and full session review reports.
+
+- Five compiled decision phrases in a dropdown, with free typing/editing retained. The user chose reusable summaries after resolved-note inspection found no five repeated personal decision comments.
+- Automatically save timestamped offline HTML under the original project's Review Queue folder when pausing/stopping/closing a nonempty session.
+- Show full before/after anchored text, Tamil-safe highlighted differences, exact target/replacement, comments, authenticated Paratext reviewer, UTC decision/action times and resolution status.
+- Provide a modeless report viewer inside the plugin, plus Open in browser, search, decision filters and printing.
+- Persist full audit snapshots before submission; clearly distinguish verified writes, unchanged rejections, manual observations and unverified attempts.
+- Recover interrupted session reports and preserve older decisions without inventing historical context or reviewer identity.
+- Verify the project folder identity; report failures preserve local decisions and offer retry.
+- 121 automated checks pass. Real-host preset/report acceptance is tracked in VALIDATION.md.
+
+---
+
 # 0.2.0-preview.2
 
 Reviewed queue decisions now resolve their original Paratext notes while comments/progress remain local.

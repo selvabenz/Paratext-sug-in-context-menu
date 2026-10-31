@@ -12,8 +12,12 @@ namespace ParatextNoteSuggestions
         public Proposal Proposal;
         public string Key, StableId, DiscussionKey, NoteText, AnchorText, Before, After, DisplayReference;
         public IVerseRef TargetReference;
-        public int Book, Chapter, FirstVerse, LastVerse;
+        public int Book, Chapter, FirstVerse, LastVerse, EndBook, EndChapter;
         public bool CrossChapter, IsResolved;
+    }
+    public sealed class PassageEvidence
+    {
+        public string Before, After, Scope;
     }
     sealed class RecoveryRecord
     {
@@ -33,6 +37,7 @@ namespace ParatextNoteSuggestions
         static readonly Dictionary<string, RecoveryRecord> Recovery = new Dictionary<string, RecoveryRecord>();
         public string ProjectName { get { return project.ShortName; } }
         public string ProjectId { get { return projectId; } }
+        public string Reviewer { get { return host.UserInfo == null ? "Unknown Paratext user" : host.UserInfo.Name; } }
         public string Reference { get; private set; }
         public NoteService(IPluginObject pluginObject, IPluginHost pluginHost, IParatextChildState state)
         {
@@ -65,6 +70,21 @@ namespace ParatextNoteSuggestions
         }
         public void Navigate(NoteCandidate item)
         { host.OpenTextWindowFor(project, OpenWindowBehavior.UseExisting, item.TargetReference); }
+        public string CapturePassage(NoteCandidate item, ContentRegion region)
+        {
+            var numbers = item.EndBook > item.Book ? project.AvailableBooks.Select(b => b.Number).Where(b => b >= item.Book && b <= item.EndBook) : new[] { item.Book };
+            return Passage(numbers.SelectMany(b => project.GetUSFMTokens(b, region == ContentRegion.Introduction || item.CrossChapter ? 0 : item.Chapter)).ToList(), item, region);
+        }
+        string Passage(List<IUSFMToken> tokens, NoteCandidate item, ContentRegion region)
+        {
+            var context = region == ContentRegion.Introduction
+                ? tokens.TakeWhile(t => !(t is IUSFMMarkerToken) || ((IUSFMMarkerToken)t).Type != MarkerType.Chapter).ToList()
+                : tokens.Where(t => t.VerseRef != null &&
+                    (t.VerseRef.BookNum > item.Book || (t.VerseRef.BookNum == item.Book && (t.VerseRef.ChapterNum > item.Chapter || (t.VerseRef.ChapterNum == item.Chapter && t.VerseRef.VerseNum >= item.FirstVerse)))) &&
+                    (t.VerseRef.BookNum < item.EndBook || (t.VerseRef.BookNum == item.EndBook && (t.VerseRef.ChapterNum < item.EndChapter || (t.VerseRef.ChapterNum == item.EndChapter && t.VerseRef.VerseNum <= item.LastVerse))))).ToList();
+            if (context.Count == 0) throw new InvalidOperationException("Full passage context could not be captured. No correction was submitted.");
+            return project.ConvertToUSFMString(context);
+        }
         void CheckContext()
         {
             if (queueMode) return; // All writes still re-read the source under the target project write lock.
@@ -162,6 +182,7 @@ namespace ParatextNoteSuggestions
             var a = note.Anchor;
             return new NoteCandidate { Proposal = proposal, Key = key, DiscussionKey = DiscussionKey(note), IsResolved = note.IsResolved, TargetReference = a.VerseRefStart, NoteText = text, AnchorText = a.SelectedText, Before = a.BeforeContext, After = a.AfterContext,
                 Book = a.VerseRefStart.BookNum, Chapter = a.VerseRefStart.ChapterNum, FirstVerse = a.VerseRefStart.VerseNum, LastVerse = a.VerseRefEnd.VerseNum,
+                EndBook = a.VerseRefEnd.BookNum, EndChapter = a.VerseRefEnd.ChapterNum,
                 CrossChapter = a.VerseRefStart.BookNum != a.VerseRefEnd.BookNum || a.VerseRefStart.ChapterNum != a.VerseRefEnd.ChapterNum,
                 DisplayReference = a.VerseRefStart + (a.VerseRefStart.ToString() == a.VerseRefEnd.ToString() ? "" : " – " + a.VerseRefEnd) };
         }
@@ -172,7 +193,7 @@ namespace ParatextNoteSuggestions
             if (matches[0].CrossChapter) throw new InvalidOperationException("This preview does not apply cross-chapter or cross-book edits. Review the note in Paratext.");
             return matches[0];
         }
-        public void Apply(NoteCandidate candidate, string original, string replacement, ContentRegion region, bool reviewed, bool explicitDeletion = false, Action beforeSubmit = null)
+        public void Apply(NoteCandidate candidate, string original, string replacement, ContentRegion region, bool reviewed, bool explicitDeletion = false, Action beforeSubmit = null, Action<PassageEvidence> captureEvidence = null)
         {
             CheckContext();
             if (region == ContentRegion.Structure) throw new InvalidOperationException("Choose the structural marker review action for this proposal.");
@@ -195,12 +216,14 @@ namespace ParatextNoteSuggestions
                     throw new InvalidOperationException("This correction requires review before applying.");
                 var tokens = project.GetUSFMTokens(candidate.Book, scope).ToList();
                 string before = project.ConvertToUSFMString(tokens);
+                string passageBefore = captureEvidence == null ? null : Passage(tokens, candidate, region);
                 var match = ExactEditor.Locate(TokenMapping.Parts(tokens), region, candidate.Chapter, candidate.FirstVerse, candidate.LastVerse, original, replacement,
                     original == fresh.AnchorText ? fresh.Before : "", original == fresh.AnchorText ? fresh.After : "");
                 var old = tokens[match.TokenIndex] as IUSFMTextToken;
                 if (old == null) throw new InvalidOperationException("The selected target is not a Scripture text token.");
                 tokens[match.TokenIndex] = new ChangedTextToken(old, ExactEditor.Replace(old.Text, match));
                 string expected = project.ConvertToUSFMString(tokens);
+                if (captureEvidence != null) captureEvidence(new PassageEvidence { Before = passageBefore, After = Passage(tokens, candidate, region), Scope = region == ContentRegion.Introduction ? "Full book introduction (USFM)" : "Full anchored passage (USFM)" });
                 if (revoked) throw new InvalidOperationException("The write lock was withdrawn. No edit was submitted.");
                 if (beforeSubmit != null) beforeSubmit();
                 if (revoked) throw new InvalidOperationException("The write lock was withdrawn before submission.");
@@ -214,7 +237,7 @@ namespace ParatextNoteSuggestions
         }
         // Deliberately narrow structural operation: marker rename with identical associated text.
         // Verse/chapter numbering, note boundaries, attributes and verse exchanges remain review-only.
-        public void ApplyMarkerRename(NoteCandidate candidate, Action beforeSubmit = null)
+        public void ApplyMarkerRename(NoteCandidate candidate, Action beforeSubmit = null, Action<PassageEvidence> captureEvidence = null)
         {
             CheckContext();
             var p = candidate.Proposal;
@@ -241,10 +264,12 @@ namespace ParatextNoteSuggestions
                 }
                 if (indexes.Count != 1) throw new InvalidOperationException("The exact structural label is missing or ambiguous at the note anchor. No marker was changed.");
                 string before = project.ConvertToUSFMString(tokens);
+                string passageBefore = captureEvidence == null ? null : Passage(tokens, candidate, ContentRegion.Heading);
                 int index = indexes[0];
                 var oldMarker = (IUSFMMarkerToken)tokens[index];
                 tokens[index] = new ChangedMarkerToken(oldMarker, b.Groups[1].Value);
                 string expected = project.ConvertToUSFMString(tokens);
+                if (captureEvidence != null) captureEvidence(new PassageEvidence { Before = passageBefore, After = Passage(tokens, candidate, ContentRegion.Heading), Scope = "Full anchored heading/passage (USFM)" });
                 // Reparse using the host to validate the generated USFM before writing.
                 var reparsed = project.ConvertToUSFMTokens(expected, candidate.Book, candidate.Chapter, 0).ToList();
                 if (project.ConvertToUSFMString(reparsed) != expected) throw new InvalidOperationException("Paratext's USFM round-trip changed the structural proposal; review it manually.");

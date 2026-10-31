@@ -1,7 +1,7 @@
 [CmdletBinding()]
-param([string]$Version = '0.2.0-preview.2', [string]$ParatextDir = 'C:\Program Files\Paratext 9')
+param([string]$Version = '0.3.0-preview.1', [string]$ParatextDir = 'C:\Program Files\Paratext 9')
 $ErrorActionPreference = 'Stop'
-if ($Version -ne '0.2.0-preview.2') { throw 'Update assembly metadata, documentation, and package version together before changing the version.' }
+if ($Version -ne '0.3.0-preview.1') { throw 'Update assembly metadata, documentation, and package version together before changing the version.' }
 $projectRoot = Split-Path -Parent $PSScriptRoot
 & (Join-Path $PSScriptRoot 'build.ps1') -ParatextDir $ParatextDir
 $releaseDir = Join-Path $projectRoot ("artifacts\release\stage-" + [Guid]::NewGuid().ToString('N'))

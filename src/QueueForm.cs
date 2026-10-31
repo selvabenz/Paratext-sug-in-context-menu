@@ -4,6 +4,7 @@ using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Windows.Forms;
+using System.Xml.Linq;
 
 namespace ParatextNoteSuggestions
 {
@@ -12,6 +13,10 @@ namespace ParatextNoteSuggestions
     {
         readonly NoteService owner;
         readonly ReviewProgress progress;
+        readonly ReviewSession session;
+        readonly ComboBox commentPreset = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Top };
+        readonly Button viewReport = Button("View latest report"), reportFolder = Button("Report folder...");
+        string reportProjectDirectory, loadedContext = "";
         readonly List<NoteCandidate> items = new List<NoteCandidate>();
         readonly HashSet<string> duplicateIds = new HashSet<string>();
         readonly HashSet<string> seen = new HashSet<string>();
@@ -30,12 +35,16 @@ namespace ParatextNoteSuggestions
         bool paused, busy, populating, indexing = true, blocked;
         bool resourcesDisposed;
         string recoveryNotice = "";
-        public QueueForm(NoteService service, string progressRoot = null)
+        public QueueForm(NoteService service, string progressRoot = null, string reportDirectory = null)
         {
             owner = service;
             progress = new ReviewProgress(progressRoot ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ParatextNoteSuggestions", "Review"), owner.ProjectId);
-            try { books = new Queue<int>(owner.QueueBooks()); }
+            try { books = new Queue<int>(owner.QueueBooks()); session = new ReviewSession(progress.DirectoryPath, owner.ProjectId, owner.ProjectName, owner.Reviewer); }
             catch { progress.Dispose(); throw; }
+            reportProjectDirectory = reportDirectory;
+            string savedFolder = Path.Combine(progress.DirectoryPath, "report-folder.xml");
+            if (reportProjectDirectory == null && File.Exists(savedFolder)) reportProjectDirectory = XElement.Load(savedFolder).Value;
+            if (reportProjectDirectory == null || !ProjectReportDirectory.Matches(reportProjectDirectory, owner.ProjectId)) reportProjectDirectory = ProjectReportDirectory.Find(owner.ProjectName, owner.ProjectId);
             Text = "Note review queue - " + owner.ProjectName;
             Font = new Font("Segoe UI", 10); AutoScaleMode = AutoScaleMode.Dpi;
             var area = Screen.PrimaryScreen.WorkingArea;
@@ -48,8 +57,11 @@ namespace ParatextNoteSuggestions
             var fields = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, AutoScroll = true, Padding = new Padding(0, 8, 15, 0) };
             source.ReadOnly = true; source.Dock = DockStyle.Fill;
             Add(fields, "Target region", region); region.Items.AddRange(Enum.GetValues(typeof(ContentRegion)).Cast<object>().ToArray());
+            original.Height = replacement.Height = 48; comment.Height = 48;
             Add(fields, "Exact original", original); Add(fields, "Chosen literal replacement", replacement);
-            Add(fields, "Decision comment (saved locally with progress)", comment);
+            Add(fields, "Decision comment - choose a phrase or type/edit below", commentPreset);
+            commentPreset.Items.Add("Choose a reusable decision phrase..."); commentPreset.Items.AddRange(CommentPresets.Values); commentPreset.SelectedIndex = 0;
+            fields.Controls.Add(comment);
             fields.Controls.Add(deletion); fields.Controls.Add(reviewed);
             var tabs = new TabControl { Dock = DockStyle.Fill };
             var correctionTab = new TabPage("Correction and decision"); correctionTab.Controls.Add(fields);
@@ -57,7 +69,7 @@ namespace ParatextNoteSuggestions
             tabs.TabPages.Add(correctionTab); tabs.TabPages.Add(sourceTab); root.Controls.Add(tabs);
             var actions = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = true };
             foreach (var b in new[] { apply, reject, manual, retry, resolve, later, back, pause }) actions.Controls.Add(b);
-            var export = Button("Export decisions..."); actions.Controls.Add(export); root.Controls.Add(actions);
+            var export = Button("Export decisions..."); actions.Controls.Add(export); actions.Controls.Add(viewReport); actions.Controls.Add(reportFolder); root.Controls.Add(actions);
             status.Dock = DockStyle.Fill; root.Controls.Add(status); Controls.Add(root);
             status.Text = "Indexing unresolved AI-QA notes, one book at a time. Pause or close to stop. No Scripture changes occur during indexing.";
             heading.Text = owner.ProjectName + " - preparing review queue";
@@ -73,13 +85,23 @@ namespace ParatextNoteSuggestions
                     SaveDraft(); paused = !paused; pause.Text = paused ? "Resume" : "Pause";
                     if (indexing) { if (paused) indexTimer.Stop(); else indexTimer.Start(); }
                     else if (!paused && current == null) { position = -1; Next(); }
-                    status.Text = paused ? "Paused. Position and draft saved. Close safely or Resume when ready." : "Waiting for your decision. You can browse reference windows freely.";
+                    string report = paused ? GenerateReports("Paused", true) : null;
+                    status.Text = paused ? "Paused. Position and draft saved." + (report == null ? " No new decisions to report." : " HTML report saved. Use View latest report.") : "Waiting for your decision. You can browse reference windows freely.";
                     EnableActions();
                 });
             };
             later.Click += delegate { Guard(delegate { SaveDraft(); Next(); }); };
             back.Click += delegate { Guard(delegate { if (current != null) owner.Navigate(current); }); };
             export.Click += delegate { Guard(delegate { using (var dialog = new SaveFileDialog { Filter = "CSV review log|*.csv", FileName = "Note-review-decisions.csv" }) if (dialog.ShowDialog(this) == DialogResult.OK) progress.Export(dialog.FileName); }); };
+            commentPreset.SelectedIndexChanged += delegate { if (!populating && commentPreset.SelectedIndex > 0) comment.Text = (string)commentPreset.SelectedItem; };
+            reportFolder.Click += delegate { Guard(ChooseReportFolder); };
+            viewReport.Click += delegate { Guard(delegate {
+                string path = GenerateReports("Viewed during review", true) ?? ReviewSession.Latest(progress.DirectoryPath);
+                if (String.IsNullOrEmpty(path)) { status.Text = "No report yet. Review a note, then pause or stop the queue."; return; }
+                string folder = ProjectReportDirectory.ReportFolder(reportProjectDirectory, owner.ProjectId) + Path.DirectorySeparatorChar;
+                if (!Path.GetFullPath(path).StartsWith(folder, StringComparison.OrdinalIgnoreCase) || Path.GetExtension(path) != ".html" || !File.Exists(path)) throw new InvalidOperationException("The latest report is unavailable in this project's Review Queue folder.");
+                var viewer = new ReviewReportViewer(path); viewer.Show(this);
+            }); };
             foreach (var box in new[] { original, replacement, comment }) box.TextChanged += delegate {
                 if (!populating) { if (box != comment) reviewed.Checked = false; draftTimer.Stop(); draftTimer.Start(); } EnableActions();
             };
@@ -91,7 +113,7 @@ namespace ParatextNoteSuggestions
             Shown += delegate { indexTimer.Start(); };
             FormClosing += delegate(object sender, FormClosingEventArgs e) {
                 if (busy) { e.Cancel = true; return; }
-                try { SaveDraft(); } catch (Exception ex) { e.Cancel = true; Fail(ex); }
+                try { SaveDraft(); GenerateReports("Closed", true); } catch (Exception ex) { e.Cancel = true; Fail(ex); }
             };
             EnableActions();
         }
@@ -112,7 +134,31 @@ namespace ParatextNoteSuggestions
         void Fail(Exception ex)
         {
             indexTimer.Stop(); draftTimer.Stop(); paused = true; pause.Text = "Resume"; owner.ReportFailure(ex);
-            status.Text = ex.Message + " Review paused."; EnableActions();
+            status.Text = ex.Message + " Review paused.";
+            try { GenerateReports("Stopped after error", false); } catch (Exception reportError) { owner.ReportFailure(reportError); status.Text += " Report pending; local audit is saved. Use Report folder / View latest report to retry."; }
+            EnableActions();
+        }
+        void ChooseReportFolder()
+        {
+            using (var dialog = new FolderBrowserDialog { Description = "Choose this Paratext project's folder (the one containing Settings.xml). Reports go in its Review Queue subfolder.", SelectedPath = reportProjectDirectory ?? "" })
+            {
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                ProjectReportDirectory.ReportFolder(dialog.SelectedPath, owner.ProjectId);
+                reportProjectDirectory = Path.GetFullPath(dialog.SelectedPath);
+                ReviewProgress.AtomicWrite(Path.Combine(progress.DirectoryPath, "report-folder.xml"), new XElement("directory", reportProjectDirectory));
+                status.Text = "Reports will be saved under " + Path.Combine(reportProjectDirectory, "Review Queue");
+            }
+        }
+        string GenerateReports(string reason, bool prompt)
+        {
+            if (session.Records().Count == 0 && !ReviewSession.NeedsRecovery(progress.DirectoryPath, session.Id)) return null;
+            if (reportProjectDirectory == null || !ProjectReportDirectory.Matches(reportProjectDirectory, owner.ProjectId))
+            {
+                if (prompt) ChooseReportFolder();
+                if (reportProjectDirectory == null || !ProjectReportDirectory.Matches(reportProjectDirectory, owner.ProjectId)) throw new InvalidOperationException("Choose this project's Report folder to finish its HTML report. Local decisions remain saved.");
+            }
+            ReviewSession.Recover(progress.DirectoryPath, session.Id, reportProjectDirectory, owner.ProjectId);
+            return session.WriteReport(reportProjectDirectory, items.Count, completed, reason) ?? ReviewSession.Latest(progress.DirectoryPath);
         }
         void IndexBook()
         {
@@ -151,7 +197,10 @@ namespace ParatextNoteSuggestions
             {
                 heading.Text = owner.ProjectName + " - " + completed + " / " + items.Count + " reviewed" + recoveryNotice;
                 source.Text = "End of this pass. Resume to revisit items left for later, or close and reopen to scan for new notes.";
-                paused = true; pause.Text = "Resume"; EnableActions(); return;
+                original.Clear(); replacement.Clear(); comment.Clear();
+                paused = true; pause.Text = "Resume"; EnableActions();
+                string report = GenerateReports("End of pass", true);
+                status.Text = "End of this pass. Resume to revisit deferred notes." + (report == null ? "" : " HTML report saved; use View latest report."); return;
             }
             try { current = owner.ReloadQueueItem(current, ResolutionPending()); }
             catch (Exception ex) { blocked = true; status.Text = ex.Message; }
@@ -160,7 +209,7 @@ namespace ParatextNoteSuggestions
             var draft = progress.Cursor();
             populating = true;
             source.Text = current.NoteText; original.Text = current.Proposal.Original; replacement.Text = current.Proposal.Suggested;
-            comment.Text = ""; region.SelectedItem = current.Proposal.Region; deletion.Checked = false; reviewed.Checked = false;
+            comment.Text = ""; commentPreset.SelectedIndex = 0; region.SelectedItem = current.Proposal.Region; deletion.Checked = false; reviewed.Checked = false;
             var restore = previous != null && (previous.Outcome == "Pending apply" || previous.Completed) ? previous : (draft != null && draft.Id == current.StableId ? draft : previous);
             if (restore != null)
             {
@@ -169,6 +218,8 @@ namespace ParatextNoteSuggestions
                 deletion.Checked = restore.Outcome == "Draft deletion";
             }
             populating = false;
+            try { loadedContext = owner.CapturePassage(current, (ContentRegion)region.SelectedItem); } catch { loadedContext = ""; }
+            if (restore != null && restore.BeforeContext.Length > 0) loadedContext = restore.BeforeContext;
             heading.Text = owner.ProjectName + " | " + current.DisplayReference + " | " + current.Proposal.Pass + " | " + current.Proposal.Category + "\r\n" + completed + " / " + items.Count + " reviewed - " + current.Proposal.Route + recoveryNotice;
             if (!blocked) status.Text = ResolutionPending() ? "Decision saved locally. Retry note resolution to finish; the Scripture correction will not be repeated." : Pending() ? "An earlier apply did not finish recording. Inspect Paratext history and the passage, then confirm completed manually or confirm no edit before retrying." : "Waiting for Apply or Reject. Browse references freely. Comments/progress stay local; the note resolves when all its proposals have decisions.";
             else status.Text = "Source changed, unavailable, or duplicate identity. Automatic Apply is blocked. Inspect in Paratext; leave for later or record a commented manual decision.";
@@ -181,7 +232,7 @@ namespace ParatextNoteSuggestions
         ReviewRecord Record(string outcome)
         {
             return new ReviewRecord { Id = current.StableId, Outcome = outcome, Reference = current.DisplayReference, Category = current.Proposal.Category,
-                Original = original.Text, Replacement = deletion.Checked ? "" : replacement.Text, Comment = comment.Text, Discussion = current.DiscussionKey, Region = region.SelectedItem == null ? "" : region.SelectedItem.ToString() };
+                Original = original.Text, Replacement = deletion.Checked ? "" : replacement.Text, Comment = comment.Text, Discussion = current.DiscussionKey, BeforeContext = loadedContext, Region = region.SelectedItem == null ? "" : region.SelectedItem.ToString() };
         }
         void SaveDraft()
         {
@@ -205,6 +256,8 @@ namespace ParatextNoteSuggestions
             resolve.Visible = ResolutionPending(); resolve.Enabled = ready && ResolutionPending() && !duplicate;
             later.Enabled = ready; back.Enabled = current != null && !busy;
             pause.Enabled = !busy;
+            viewReport.Enabled = reportFolder.Enabled = !busy;
+            commentPreset.Enabled = !busy && !decisionSaved && current != null;
             original.Enabled = replacement.Enabled = comment.Enabled = region.Enabled = reviewed.Enabled = deletion.Enabled = !busy && !decisionSaved;
             replacement.Enabled = !busy && !decisionSaved && !deletion.Checked;
         }
@@ -219,22 +272,45 @@ namespace ParatextNoteSuggestions
                 try
                 {
                     var record = Record(outcome);
+                    record.SessionId = session.Id; record.AuditId = Guid.NewGuid().ToString("N"); record.Reviewer = owner.Reviewer;
+                    record.DecisionUtc = record.ActionUtc = DateTime.UtcNow.ToString("O"); record.Actor = record.Reviewer; record.SourceNote = current.NoteText;
                     if (outcome == "Applied")
                     {
                         // Persist intent first: any uncertain failure must stop, never blindly retry.
-                        var intent = Record("Pending apply");
-                        Action beforeSubmit = delegate { progress.Save(intent); };
+                        Action<PassageEvidence> evidence = delegate(PassageEvidence value) { record.BeforeContext = value.Before; record.AfterContext = value.After; record.ContextScope = value.Scope; record.Evidence = "Expected result captured before submission; saved USFM not yet verified."; };
+                        Action beforeSubmit = delegate {
+                            if (owner.Reviewer != record.Reviewer) throw new InvalidOperationException("The Paratext user changed during review. Reopen this item before applying.");
+                            var intent = ReviewRecord.FromXml(record.ToXml()); intent.Outcome = "Pending apply";
+                            progress.Save(intent); session.Track(intent);
+                        };
                         var service = owner.ForQueueItem(current);
                         if (current.Proposal.Route == ProposalRoute.Structure)
                         {
                             if (original.Text != current.Proposal.Original || replacement.Text != current.Proposal.Suggested || deletion.Checked || (ContentRegion)region.SelectedItem != current.Proposal.Region)
                                 throw new InvalidOperationException("Structural review requires the unchanged source proposal and region.");
-                            service.ApplyMarkerRename(current, beforeSubmit);
+                            service.ApplyMarkerRename(current, beforeSubmit, evidence);
                         }
-                        else service.Apply(current, original.Text, record.Replacement, (ContentRegion)region.SelectedItem, true, deletion.Checked, beforeSubmit);
+                        else service.Apply(current, original.Text, record.Replacement, (ContentRegion)region.SelectedItem, true, deletion.Checked, beforeSubmit, evidence);
+                        record.Evidence = "Verified saved USFM after the queue correction. Scripture write by Paratext user: " + record.Reviewer;
+                    }
+                    else
+                    {
+                        string snapshot = owner.CapturePassage(current, (ContentRegion)region.SelectedItem);
+                        record.BeforeContext = outcome == "Rejected" ? snapshot : loadedContext;
+                        record.AfterContext = snapshot; record.ContextScope = "Full passage context observed at decision time (USFM)";
+                        record.Evidence = outcome == "Rejected" ? "No Scripture edit by the queue. Before and after are the same captured passage." : "Manual completion acknowledged by the reviewer. Before was observed when this item loaded; after at decision time. The actual editor of manual changes is not verified.";
                     }
                     record.Resolution = "Pending";
-                    progress.Save(record); completed++; FinishResolution();
+                    var previousAttempt = progress.Get(current.StableId);
+                    progress.Save(record); session.Track(record);
+                    if (previousAttempt != null && previousAttempt.Outcome == "Pending apply" && previousAttempt.AuditId.Length > 0)
+                    {
+                        var reconciled = ReviewRecord.FromXml(previousAttempt.ToXml()); reconciled.Outcome = "Reconciled manually";
+                        reconciled.AfterContext = record.AfterContext; reconciled.Actor = record.Reviewer; reconciled.ActionUtc = record.ActionUtc;
+                        reconciled.Evidence = "Reviewer manually acknowledged completion; after context observed at confirmation. Linked audit: " + record.AuditId;
+                        ReviewSession.WriteEntry(progress.DirectoryPath, reconciled.SessionId, reconciled);
+                    }
+                    completed++; FinishResolution();
                 }
                 finally { busy = false; EnableActions(); }
             });
@@ -252,15 +328,24 @@ namespace ParatextNoteSuggestions
                     var updated = ReviewRecord.FromXml(peer.ToXml()); updated.Resolution = "Resolved"; progress.Save(updated);
                 }
             var finished = ReviewRecord.FromXml(record.ToXml());
+            if (finished.AuditId.Length == 0)
+            {
+                finished.SessionId = session.Id; finished.AuditId = Guid.NewGuid().ToString("N");
+                finished.Evidence = "This session only retried note resolution. The decision is from an older version; its original reviewer and full before/after snapshots were not recorded.";
+            }
             finished.Resolution = resolved ? "Resolved" : "Waiting for remaining proposals";
-            progress.Save(finished); Next();
+            finished.Actor = owner.Reviewer; finished.ActionUtc = DateTime.UtcNow.ToString("O");
+            progress.Save(finished); session.Track(finished); Next();
         }
         void Retry()
         {
             Guard(delegate {
                 if (!retry.Enabled) return;
                 if (MessageBox.Show(this, "Confirm you inspected the saved passage and project history and verified that the pending correction was NOT applied. This permits another attempt; it does not change Scripture.", "Reconcile interrupted apply", MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK) return;
-                progress.Save(Record("Retry confirmed")); status.Text = "Retry permitted after your verification. Review the exact correction again."; reviewed.Checked = false; EnableActions();
+                var previous = progress.Get(current.StableId); var confirmed = ReviewRecord.FromXml(previous.ToXml());
+                confirmed.Outcome = "Retry confirmed"; confirmed.Comment = comment.Text; confirmed.Actor = owner.Reviewer; confirmed.ActionUtc = DateTime.UtcNow.ToString("O"); confirmed.Evidence = "Reviewer confirmed no correction was applied; the displayed expected result was not verified as a saved change.";
+                confirmed.AfterContext = confirmed.BeforeContext;
+                progress.Save(confirmed); session.Track(confirmed); status.Text = "Retry permitted after your verification. Review the exact correction again."; reviewed.Checked = false; EnableActions();
             });
         }
     }

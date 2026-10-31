@@ -11,13 +11,15 @@ namespace NoteSuggestionsTests
     {
         static void Check(bool yes) { if (!yes) throw new Exception("Queue assertion failed"); }
         static bool FailInfo(QueueForm q) { throw new Exception(Field<Label>(q, "status").Text); }
-        static string Root() { return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "queue-tests", Guid.NewGuid().ToString("N")); }
+        static string Root() { return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "qt", Guid.NewGuid().ToString("N").Substring(0, 10)); }
         static T Field<T>(object o, string name) { return (T)o.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic).GetValue(o); }
         static void Call(object o, string name, params object[] args)
         { try { o.GetType().GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic).Invoke(o, args); } catch (TargetInvocationException ex) { throw ex.InnerException; } }
-        static QueueForm Queue(Fixture f, string root)
+        public static QueueForm Queue(Fixture f, string root)
         {
-            var q = new QueueForm(f.Service(), root);
+            string project = Path.Combine(root, "project"); Directory.CreateDirectory(project);
+            new System.Xml.Linq.XElement("ScriptureText", new System.Xml.Linq.XElement("Guid", f.ProjectId)).Save(Path.Combine(project, "Settings.xml"));
+            var q = new QueueForm(f.Service(), root, project);
             Call(q, "IndexBook"); Call(q, "IndexBook"); return q;
         }
         public static void Run(Action<string, Action> test)

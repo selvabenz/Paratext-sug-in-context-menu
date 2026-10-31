@@ -6,7 +6,7 @@ Target: **Paratext 9.5.110.1 on Windows**.
 
 ## Status
 
-**0.2.0-preview.2** is a compiled Windows plugin built against Paratext 9.5.110.1 interfaces (2.0.100.0), targeting .NET Framework 4.8. It includes 104 passing checks and real-host tests for loading, exact Scripture/footnote writes, ambiguity refusal, and revert in a disposable project. Export/Send-Receive acceptance remains pending; this is a prerelease.
+**0.3.0-preview.1** is a compiled Windows plugin built against Paratext 9.5.110.1 interfaces (2.0.100.0), targeting .NET Framework 4.8. It includes 121 passing checks and real-host tests for loading, exact Scripture/footnote writes, ambiguity refusal, and revert in a disposable project. Export/Send-Receive acceptance remains pending; this is a prerelease.
 
 Get the package from [GitHub Releases](https://github.com/selvabenz/Paratext-sug-in-context-menu/releases). Read [INSTALL.md](INSTALL.md), [VALIDATION.md](VALIDATION.md), and the [developer handoff](DEVELOPER_HANDOFF.md) before using it.
 
@@ -19,6 +19,16 @@ Choose **Review note queue…** in the Scripture right-click or Tools menu. The 
 You can browse reference windows for as long as needed. **Return to queued passage** restores the queued target; browsing never retargets its write. Use **Pause**, **Resume**, **Leave for later**, or close the window. Reopening resumes saved progress and drafts. Reviewed items are skipped. An interrupted/unverified apply is held for explicit reconciliation before another attempt.
 
 Comments and decisions are stored locally on this Windows account and can be exported to CSV. They are not appended to source notes or synchronized by Send/Receive. After each new queue decision, the original note is resolved once every QA proposal in its thread has a saved decision. Paused/deferred items stay open. Resolution failures pause with a separate retry that never repeats the Scripture edit. Complex corrections can be performed in Paratext, then recorded with **Completed manually / no change** and a comment. Duplicate source identities require manual disambiguation before a queue decision can be recorded.
+
+## Comment presets and session reports
+
+The queue offers five reusable decision phrases compiled from resolved-note themes with the user's approval. Selecting one fills the editable comment box; it does not apply/reject or change Scripture. The phrases cover accepted, accepted with revision, existing wording retained, meaning-sensitive rejection, and already corrected/no change. They are not presented as five repeated quotations from the user's account.
+
+Pause or close the queue to save a timestamped, offline HTML report in the original project's **Review Queue** folder. Reports show full passage snapshots before/after, highlighted changes, exact targets/replacements, comments, Paratext reviewer identity, UTC times, decisions and note resolution. A report is cumulative for the currently open queue session; closing and reopening starts a new session. Pausing twice with no new actions reuses the saved report. Empty sessions create no report.
+
+**View latest report** opens the report inside a modeless plugin window, with an **Open in browser** option. Search and decision filters are included. Report folder identity is checked against Settings.xml; choose **Report folder...** if automatic detection cannot find the original project.
+
+Applied snapshots are captured under the Scripture lock and labeled verified only after saved USFM verification. Rejected text remains unchanged by the queue. Manual comparisons show text observed at review load and decision time; the reviewer does not establish who made a manual edit. Unverified attempts remain clearly labeled. Older decisions have no invented before/after context or reviewer names. Session audit data is durable locally so an interrupted session's report can be recovered.
 
 ## Intended workflow
 

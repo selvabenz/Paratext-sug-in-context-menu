@@ -48,8 +48,10 @@ namespace NoteSuggestionsTests
         public bool Editable = true, LockAvailable = true, Resolved, IgnorePut, Revoke, ThrowPut;
         public bool LockHeld, NotesLockHeld, NotesLockAvailable = true, ThrowResolve, IgnoreResolve;
         public int Resolves;
+        public Action OnHistory;
         public int Writes, Released, Notifications, History, Navigations, ActiveVerse = 3;
         public List<IComment> Replies = new List<IComment>();
+        public string UserName = "Synthetic Reviewer";
         public string ProjectId = Guid.NewGuid().ToString(), NoteText, AnchorText = "பழைய", Before = "", After = "", DiskFile;
         public IReadOnlyList<ISelection> Selections = new List<ISelection>();
         public Fixture()
@@ -93,7 +95,7 @@ namespace NoteSuggestionsTests
                         List<IUSFMToken> saved;
                         if (!Serialized.TryGetValue((string)a[0], out saved)) throw new InvalidOperationException("Unknown synthetic USFM");
                         return saved.ToList();
-                    case "MakeHistoryPoint": if (LockHeld) throw new InvalidOperationException("History checkpoint invalidates active write locks"); History++; return null;
+                    case "MakeHistoryPoint": if (LockHeld) throw new InvalidOperationException("History checkpoint invalidates active write locks"); History++; if (OnHistory != null) OnHistory(); return null;
                     case "PutUSFMTokens":
                         Writes++;
                         if (ThrowPut) throw new InvalidOperationException("Injected save failure");
@@ -107,7 +109,7 @@ namespace NoteSuggestionsTests
                 switch(m.Name) { case "get_Project": return Project; case "get_VerseRef": return MakeRef(1, ActiveVerse); case "get_Selections": return Selections; default: throw new NotSupportedException(m.Name); }
             });
             Host = Stub<IPluginHost>.Create((m, a) => {
-                switch(m.Name) { case "get_ActiveWindowState": return State; case "get_ApplicationVersion": return new Version(9,5,110,1); case "OpenTextWindowFor": Navigations++; return null; default: throw new NotSupportedException("host."+m.Name); }
+                switch(m.Name) { case "get_UserInfo": return Stub<IUserInfo>.Create((um, ua) => um.Name == "get_Name" ? UserName : null); case "get_ActiveWindowState": return State; case "get_ApplicationVersion": return new Version(9,5,110,1); case "OpenTextWindowFor": Navigations++; return null; default: throw new NotSupportedException("host."+m.Name); }
             });
         }
         public NoteService Service() { return new NoteService(Plugin, Host, State); }
@@ -176,10 +178,12 @@ namespace NoteSuggestionsTests
                 Console.WriteLine("Stored QA comments inspected read-only: " + count + ". Routing only; applicability and live thread status not established.");
                 return 0;
             }
+            if (args.Length == 2 && args[0] == "--report-demo")
+            { Application.EnableVisualStyles(); Application.Run(new ReviewReportViewer(args[1])); return 0; }
             if (args.Contains("--queue-demo"))
             {
                 Application.EnableVisualStyles(); var f = new Fixture();
-                Application.Run(new QueueForm(f.Service(), Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "queue-demo-" + Guid.NewGuid().ToString("N")))); return 0;
+                Application.Run(QueueTests.Queue(f, Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "qd-" + Guid.NewGuid().ToString("N").Substring(0,8)))); return 0;
             }
             if (args.Contains("--menu-demo"))
             {
@@ -197,6 +201,7 @@ namespace NoteSuggestionsTests
                 f.DiskFile=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"synthetic-demo.sfm"); File.WriteAllText(f.DiskFile,f.Serialize(f.Tokens));
                 var svc=f.Service(); Application.Run(new ReviewForm(svc,svc.ReadCandidates())); return 0;
             }
+            ReportTests.Run(Test);
             QueueTests.Run(Test);
             foreach(string category in Proposal.Categories)
             {

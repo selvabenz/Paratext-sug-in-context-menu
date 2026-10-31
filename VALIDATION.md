@@ -1,3 +1,9 @@
+## 0.3.0-preview.1 preset/report validation
+
+121 automated checks cover the prior workflow plus editable five-phrase presets, under-lock full context capture, before/after snapshots and reviewer identity, footnote/body preservation, introduction and cross-chapter read snapshots, unchanged rejections, honest manual attribution, unverified attempts, 20 decisions out of 100, cumulative reports without duplicate empty stops, crash recovery, wrong-project refusal, audit path validation/repair, Tamil-safe highlighting, markup escaping and explicit unavailability for older metadata.
+
+A synthetic 20/100 HTML report has been opened and visually inspected in the embedded report viewer. Updated-build real-host report generation and preset acceptance remain pending. All private analysis, reports and note data stay in ignored local artifacts.
+
 ## 0.2.0-preview.2 note resolution validation
 
 104 synthetic checks cover the existing queue/writer plus original-note resolution after Apply, Reject and manual completion; multi-proposal thread deferral; notes-lock failure after a verified Scripture edit; idempotent already-resolved recovery; changed discussion refusal; resolution verification failure; compatibility with older records; and missing-source recovery notices. Fixtures assert a project-notes lock is held when Resolve is called.

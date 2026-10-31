@@ -1,13 +1,13 @@
 # Install the preview
 
-Version: 0.2.0-preview.2. Windows, Paratext 9.5.110.1, .NET Framework 4.8. The compiled plugin references the installed 2.0.100.0 interface assemblies; those proprietary host assemblies are not redistributed.
+Version: 0.3.0-preview.1. Windows, Paratext 9.5.110.1, .NET Framework 4.8. The compiled plugin references the installed 2.0.100.0 interface assemblies; those proprietary host assemblies are not redistributed.
 
 This preview has automated and real-host validation for loading, exact body/footnote writes, ambiguity refusal, and revert in a disposable project. Export and Send/Receive acceptance remain pending. See VALIDATION.md for the exact boundary.
 
 ## Installation
 
 1. Download the release ZIP and its `.sha256` sidecar from this repository's GitHub release.
-2. Check the ZIP using `Get-FileHash -Algorithm SHA256 .\ParatextNoteSuggestions-0.2.0-preview.2.zip` against the sidecar. Extract the ZIP to a folder.
+2. Check the ZIP using `Get-FileHash -Algorithm SHA256 .\ParatextNoteSuggestions-0.3.0-preview.1.zip` against the sidecar. Extract the ZIP to a folder.
 3. Close Paratext yourself after saving your work. The installer refuses to run while Paratext is open.
 4. In the extracted folder, run `powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1`. Approve the Windows administrator prompt if requested. This is a process-local execution-policy choice, not a persistent policy change. The script checks the plugin hash and host version, elevates if needed, installs into `Paratext 9\Plugins\ParatextNoteSuggestions`, and runs Paratext's official plugin-cache updater.
 5. Start Paratext and open a disposable test project. Check that **Note suggestions…** appears in the Scripture right-click menu and the project's Tools menu.
@@ -44,6 +44,22 @@ If note resolution fails, the saved decision remains intact with **Pending** res
 Earlier completed decisions from preview.1 are preserved and are not bulk-resolved on upgrade. Pause, Leave for later and closing without a decision do not resolve a note. Resolved items reviewed by this version remain counted in local queue progress; unrelated resolved notes are excluded. Resolved status belongs to the project and follows ordinary Paratext note synchronization; comments/progress remain local.
 
 Scope is unresolved `[AI-QA ...]` source comments, including R2/P3 and all 16 semantic categories. Legacy/human notes and native tag filtering are outside this queue. Multiple structured proposals in a thread are separate items; any conflicting correction still requires explicit review. Resolving a source note outside the queue removes it from the next scan. New notes are discovered when you reopen the queue.
+
+## Comment dropdown and HTML reports
+
+Choose one of five reusable phrases from the **Decision comment** dropdown, then edit or add text in the box below if needed. Selecting a phrase does not decide the note; use Apply/Reject as usual. Reject still requires a nonempty comment.
+
+When you pause, close, reach the end of a pass, or stop after an error with a recorded attempt, the plugin saves an offline HTML report under the original project folder, for example:
+
+`C:\My Paratext 9 Projects\IRVTam\Review Queue\Review-20261101-143022-123-<session>-<unique>.html`
+
+The timestamp in the filename is local Windows time; decision/action times inside the report are explicitly UTC. Reports contain full anchored passage or introduction USFM before/after, highlighted text changes, exact target/replacement, reviewer/comment, outcome, source discussion and resolution status. Reports are cumulative within an open queue session. Pausing again after more decisions creates a new snapshot; pausing then closing without changes reuses the report. No report is generated for an empty session.
+
+**View latest report** opens it inside Paratext's plugin UI. **Open in browser** offers a larger browser view; the HTML can be read offline. Search, decision filtering and Print/save PDF are available. **Report folder...** lets you locate a non-default project folder. Its Settings.xml project ID must match; the plugin never accepts a different project's folder. If writing the report fails, decisions stay saved locally and the queue pauses; fix the folder and retry View latest report. Closing is held until reporting succeeds.
+
+Applied context is captured under the write lock before submission and verified by saved-USFM comparison afterward. A pending/unverified apply displays **EXPECTED AFTER - NOT VERIFIED**. Rejected passages show unchanged text. Manual comparisons are observed load/decision snapshots, not verified editor attribution. The Paratext user making the decision and latest action is recorded separately. Older decisions that predate this feature explicitly lack full snapshots/reviewer identity; they are not reconstructed from current Scripture.
+
+Local session audit entries survive a crash. On a later stop/report request, interrupted sessions receive recovered reports where needed. HTML reports are ordinary files requested in the project folder; the plugin does not initiate Send/Receive for them. Reviewer comments remain outside Paratext note discussions.
 
 ## Recovery and removal
 
