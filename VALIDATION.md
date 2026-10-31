@@ -4,7 +4,9 @@
 
 The native modeless queue UI was opened with synthetic Tamil data and visually inspected. In the real 9.5.110.1 host, the new command loaded 16,270 unresolved structured proposals from IRVTam, navigated to GEN 1:8, displayed the correction and source-discussion tabs, and paused with saved cursor/draft. No Apply, Reject or manual-completed decision was made on that project. All 85 Scripture/notes hashes matched a baseline captured after saving and closing the prior host session. That baseline is private/ignored; one notes file had already differed from the older release baseline before this queue test.
 
-Full production review, final queue apply/advance acceptance in a disposable project, and full export/Send-Receive remain separate checks. The preceding release's writer evidence below is not a claim of 16,270 real-host edit tests.
+Final installed-build acceptance in disposable NSTest also passed: Apply at GEN 1:1 wrote exactly the expected single body-text replacement (all other serialized text/markers preserved), recorded Applied, and advanced to GEN 1:2. Reject with a comment recorded Rejected, left the on-disk USFM unchanged, and advanced to GEN 1:3 with Footnote region preserved. Local XML records were inspected. Clicking a reference resource changed its active verse to GEN 1:4 while the queue remained waiting at GEN 1:3. Modeless ownership kept the queue visible after asynchronous host navigation. The installed plugin SHA-256 matched the packaged binary. No production decisions were made; all 85 production Scripture/notes hashes still matched the immediate pre-queue baseline.
+
+Full production review and full export/Send-Receive remain separate checks. The preceding release's writer evidence below is not a claim of 16,270 real-host edit tests.
 
 # Validation record — 0.1.0-preview.2
 

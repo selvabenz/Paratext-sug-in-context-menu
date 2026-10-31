@@ -6,7 +6,7 @@
 
 The preceding 0.1.0-preview.2 plugin was installed and loaded in the user's real Paratext host. Test writes targeted a separate synthetic NSTest project, with on-disk USFM comparisons for body and footnote corrections, ambiguity refusal, and revert. The user's session was saved and restarted normally with administrator approval for installation. IRVTam was not targeted by any plugin edit. See VALIDATION.md for the remaining export/Send-Receive boundary.
 
-The new queue has also loaded 16,270 unresolved QA proposals in the real host, navigated to the first passage and paused without a production decision. All 85 Scripture/note hashes matched the immediate pre-queue baseline. Queue apply/advance through the real host still needs disposable-project acceptance; 94 synthetic checks pass.
+The new queue has also loaded 16,270 unresolved QA proposals in the real host, navigated to the first passage and paused without a production decision. All 85 Scripture/note hashes matched the immediate pre-queue baseline. The final installed build passed disposable-project Apply-and-next with an exact on-disk USFM comparison, commented Reject-and-next with no USFM change, Footnote region retention, and modeless reference browsing at a different verse. 94 synthetic checks pass.
 
 ## Build
 

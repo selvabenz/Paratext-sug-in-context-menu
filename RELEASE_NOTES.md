@@ -11,7 +11,7 @@ Adds a modeless review queue for large QA-note collections in Paratext 9.5.110.1
 - Keep existing category routing, exact-target validation, permissions, locks and saved-USFM verification. Complex structural work remains manual and can be recorded with a comment.
 - 94 passing synthetic checks, including queue advance, restart/draft recovery, changed sources, duplicate identities, interrupted writes, Unicode comments and 16,000 pending lookups. This is not a benchmark of 16,000 real-host edits.
 
-The existing writer's real-host body/footnote/revert validation remains applicable. The new queue has loaded 16,270 unresolved proposals in the real host, opened the first passage, and paused without changing Scripture or notes. Full queue apply/advance acceptance in a disposable project remains pending. Full export and Send/Receive acceptance remain pending. See INSTALL.md and DEVELOPER_HANDOFF.md for use, recovery and local progress limits.
+The existing writer's real-host body/footnote/revert validation remains applicable. The new queue has loaded 16,270 unresolved proposals in the real host, opened the first passage, and paused without changing Scripture or notes. Disposable-project acceptance also passed for exact Apply-and-next, commented Reject-and-next, preserved Footnote region, and reference browsing while the queued target remained fixed. Full export and Send/Receive acceptance remain pending. See INSTALL.md and DEVELOPER_HANDOFF.md for use, recovery and local progress limits.
 
 ---
 
