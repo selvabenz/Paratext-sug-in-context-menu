@@ -2,11 +2,11 @@
 
 ## Release and status
 
-0.2.0-preview.1 is an initial working C# implementation for Windows Paratext 9.5.110.1. It compiles against installed `CorePluginInterfaces.dll` and `PluginInterfaces.dll`, both assembly version 2.0.100.0. Target .NET Framework 4.8, AnyCPU. This is a preview, not a claim of production readiness or completion of every structural edit category.
+0.2.0-preview.2 is an initial working C# implementation for Windows Paratext 9.5.110.1. It compiles against installed `CorePluginInterfaces.dll` and `PluginInterfaces.dll`, both assembly version 2.0.100.0. Target .NET Framework 4.8, AnyCPU. This is a preview, not a claim of production readiness or completion of every structural edit category.
 
 The preceding 0.1.0-preview.2 plugin was installed and loaded in the user's real Paratext host. Test writes targeted a separate synthetic NSTest project, with on-disk USFM comparisons for body and footnote corrections, ambiguity refusal, and revert. The user's session was saved and restarted normally with administrator approval for installation. IRVTam was not targeted by any plugin edit. See VALIDATION.md for the remaining export/Send-Receive boundary.
 
-The new queue has also loaded 16,270 unresolved QA proposals in the real host, navigated to the first passage and paused without a production decision. All 85 Scripture/note hashes matched the immediate pre-queue baseline. The final installed build passed disposable-project Apply-and-next with an exact on-disk USFM comparison, commented Reject-and-next with no USFM change, Footnote region retention, and modeless reference browsing at a different verse. 94 synthetic checks pass.
+The new queue has also loaded 16,270 unresolved QA proposals in the real host, navigated to the first passage and paused without a production decision. All 85 Scripture/note hashes matched the immediate pre-queue baseline. The final installed build passed disposable-project Apply-and-next with an exact on-disk USFM comparison, commented Reject-and-next with no USFM change, Footnote region retention, and modeless reference browsing at a different verse. 104 synthetic checks pass.
 
 ## Build
 
@@ -38,7 +38,7 @@ No NuGet restore or .NET SDK installation is needed. The build uses Windows' .NE
 
 Capture project/passage/selection identity → check permission → create pre-edit history checkpoint → obtain scope write lock → re-read the unresolved source note and current tokens → locate exactly one Original within the explicit region → change only that text token → submit `PutUSFMTokens` → send notifications → verify saved USFM → release lock → create post-edit checkpoint. Never call MakeHistoryPoint while holding a write lock: the real host can invalidate that lock. This ordering bug was found and corrected during real-host testing.
 
-No raw project filesystem writes are used. No Send/Receive or export is invoked. QA note status is untouched. Stale source, conflicting proposals, unavailable/revoked locks, ambiguous repeats, unsupported region boundaries or changed active context block automatic actions. Failure messages distinguish an unverified submitted edit from a confirmed success; they do not promise transactional rollback.
+No raw project filesystem writes are used. No Send/Receive or export is invoked. The Scripture writer itself does not alter note status. After a queue decision is durably saved, a separate notes-lock operation resolves the source thread when all its structured proposals have decisions. Stale source, conflicting proposals, unavailable/revoked locks, ambiguous repeats, unsupported region boundaries or changed active context block automatic actions. Failure messages distinguish an unverified submitted edit from a confirmed success; they do not promise transactional rollback.
 
 For text edits, chapter scope is used except introductions (whole book, chapter argument 0). Intro, body, heading, footnote and cross-reference content are separated using the public token flags and surrounding markers. Unknown/special/metadata/figure content is excluded. Spans crossing token boundaries are refused; do not flatten markup to make a match.
 
@@ -65,9 +65,19 @@ Progress is deliberately local per Windows user/project ID, under LocalApplicati
 
 After permission/source/target validation under the write lock, the writer invokes a callback to durably persist `Pending apply` immediately before submission. A progress-save failure prevents submission. Pre-write validation refusals do not create pending intent, so the reviewer can revise/reject normally. On success, persist Applied only after the writer's USFM verification. Any exception stops/pauses; pending records cannot apply or reject again without explicit user reconciliation. Manual-completed decisions require review and a comment. Retry requires a comment and a separate confirmation that no edit occurred. The Scripture writer and progress ledger are not a shared transaction; this pending-state protocol intentionally exposes uncertain outcomes. A disk failure after the USFM write cannot become a silent retry.
 
-Comments are not appended to Paratext notes; notes stay unresolved and local progress does not sync through Send/Receive. CSV export is available, including pending outcomes. This release does not provide concurrent reviewer merging or cross-device resume. The session lease is disposed even if the form is directly disposed without being shown. The queue does not implement a cross-session USFM undo: use Paratext history for old changes.
+Comments are not appended to Paratext notes and local progress does not sync through Send/Receive. The review queue resolves completed source threads via the public ProjectNotes lock and Resolve API; note status participates in normal project note synchronization. CSV export is available, including pending outcomes. This release does not provide concurrent reviewer merging or cross-device resume. The session lease is disposed even if the form is directly disposed without being shown. The queue does not implement a cross-session USFM undo: use Paratext history for old changes.
 
 Tests require unsandboxed Windows filesystem semantics for atomic File.Replace. Under the restricted filesystem shim, Replace returns Access Denied; the queue pauses safely. The same checks pass outside that shim. Tests use ignored artifacts only.
+
+## Resolving reviewed notes (preview.2)
+
+Queue decisions are saved before note resolution, with `Resolution=Pending` and the exact reviewed discussion fingerprint. `ResolveReviewedThread` acquires `WriteLockScope.ProjectNotes`, locates exactly one source by its immutable comment identity, rejects changed discussion/duplicates, and checks that every QA source comment in that thread has a completed local decision. It calls `IProjectNote.Resolve`, sends notifications and verifies the resolved status by re-reading notes. It does not infer ProjectNotes permission from Scripture editing permission: the host notes-lock/Resolve API enforces authorization.
+
+Incomplete multi-proposal threads save Waiting for remaining proposals. When the last decision resolves the thread, earlier peer decision records are updated too, and the current acknowledgement is saved last. A failure leaves pending resolution visible with a dedicated Retry note resolution action. Apply/Reject/manual decisions are disabled for that already-saved decision; retries never call the Scripture writer. Already-resolved source notes are acknowledged idempotently. No history checkpoint occurs while a notes lock is held.
+
+Indexing reads resolved notes as well so a crash after Resolve but before local acknowledgement can recover. Only local reviewed history or pending resolution is retained from resolved notes. Old preview.1 decisions have an empty resolution field and are not retroactively resolved on startup. Sources missing/changed beyond identity matching produce a recovery notice and remain in the local outstanding log. Pause/defer/close never resolve a new note. CSV includes a Note resolution column. The one-off picker retains its prior behavior; this change belongs to the queue.
+
+104 checks include apply/reject/manual resolution, multi-proposal deferral, notes-lock failure after a verified edit, idempotent acknowledgement after restart, changed discussion, unverified Resolve, old-record compatibility and orphaned recovery. Real-host Resolve acceptance on this updated build is recorded separately in VALIDATION.md.
 
 ## Validation and remaining work
 

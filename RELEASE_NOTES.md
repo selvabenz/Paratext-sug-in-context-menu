@@ -1,3 +1,18 @@
+# 0.2.0-preview.2
+
+Reviewed queue decisions now resolve their original Paratext notes while comments/progress remain local.
+
+- Apply, Reject, and Completed manually / no change save the decision/comment before resolving the source note.
+- Threads containing multiple structured proposals stay open until every proposal has a saved decision.
+- Use a separate project-notes lock, fresh discussion checks and post-resolution verification.
+- Resolution failures retain the saved decision with a dedicated retry; no Scripture correction is repeated.
+- Recover pending resolution even if the note was already resolved before a restart. Missing sources remain visible as recovery work.
+- Pause/defer/close leave pending notes open; older preview.1 decisions are not bulk-resolved on upgrade.
+- Preserve local comments, CSV export, and normal Paratext synchronization of note status.
+- 104 synthetic checks pass. Updated-build real-host Resolve acceptance is tracked in VALIDATION.md.
+
+---
+
 # 0.2.0-preview.1
 
 Adds a modeless review queue for large QA-note collections in Paratext 9.5.110.1.

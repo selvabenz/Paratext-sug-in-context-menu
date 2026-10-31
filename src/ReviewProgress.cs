@@ -9,19 +9,20 @@ namespace ParatextNoteSuggestions
 {
     public sealed class ReviewRecord
     {
-        public string Id = "", Outcome = "", Reference = "", Category = "", Original = "", Replacement = "", Comment = "", Region = "", Updated = "";
+        public string Id = "", Outcome = "", Reference = "", Category = "", Original = "", Replacement = "", Comment = "", Region = "", Updated = "", Resolution = "", Discussion = "";
+        public bool ResolutionPending { get { return Completed && Resolution == "Pending"; } }
         public bool Completed { get { return Outcome == "Applied" || Outcome == "Rejected" || Outcome == "Completed manually"; } }
         public XElement ToXml()
         {
             return new XElement("review", new XAttribute("id", Id), new XAttribute("outcome", Outcome),
                 new XElement("reference", Reference), new XElement("category", Category), new XElement("original", Original),
-                new XElement("replacement", Replacement), new XElement("comment", Comment), new XElement("region", Region), new XElement("updated", Updated));
+                new XElement("replacement", Replacement), new XElement("comment", Comment), new XElement("region", Region), new XElement("updated", Updated), new XElement("resolution", Resolution), new XElement("discussion", Discussion));
         }
         public static ReviewRecord FromXml(XElement e)
         {
             return new ReviewRecord { Id = (string)e.Attribute("id"), Outcome = (string)e.Attribute("outcome"), Reference = (string)e.Element("reference") ?? "",
                 Category = (string)e.Element("category") ?? "", Original = (string)e.Element("original") ?? "", Replacement = (string)e.Element("replacement") ?? "",
-                Comment = (string)e.Element("comment") ?? "", Region = (string)e.Element("region") ?? "", Updated = (string)e.Element("updated") ?? "" };
+                Comment = (string)e.Element("comment") ?? "", Region = (string)e.Element("region") ?? "", Updated = (string)e.Element("updated") ?? "", Resolution = (string)e.Element("resolution") ?? "", Discussion = (string)e.Element("discussion") ?? "" };
         }
     }
     // Local, per-user progress: never a project notes/USFM side channel. Each replacement is atomic.
@@ -67,15 +68,23 @@ namespace ParatextNoteSuggestions
         { AtomicWrite(Path.Combine(directory, "cursor.xml"), draft.ToXml()); }
         public ReviewRecord Cursor()
         { string path = Path.Combine(directory, "cursor.xml"); return File.Exists(path) ? ReviewRecord.FromXml(XElement.Load(path)) : null; }
+        public IEnumerable<ReviewRecord> Outstanding()
+        {
+            foreach (string file in Directory.EnumerateFiles(directory, "*.review.xml"))
+            {
+                var record = ReviewRecord.FromXml(XElement.Load(file));
+                if (record.ResolutionPending || record.Outcome == "Pending apply") yield return record;
+            }
+        }
         public void Export(string path)
         {
             using (var writer = new StreamWriter(path, false, new UTF8Encoding(true)))
             {
-                writer.WriteLine("Reference,Category,Decision,Original,Replacement,Comment,UTC,Id");
+                writer.WriteLine("Reference,Category,Decision,Original,Replacement,Comment,UTC,Id,Note resolution");
                 foreach (string file in Directory.EnumerateFiles(directory, "*.review.xml"))
                 {
                     var r = ReviewRecord.FromXml(XElement.Load(file));
-                    writer.WriteLine(String.Join(",", Array.ConvertAll(new[] { r.Reference, r.Category, r.Outcome, r.Original, r.Replacement, r.Comment, r.Updated, r.Id }, Csv)));
+                    writer.WriteLine(String.Join(",", Array.ConvertAll(new[] { r.Reference, r.Category, r.Outcome, r.Original, r.Replacement, r.Comment, r.Updated, r.Id, r.Resolution }, Csv)));
                 }
             }
         }

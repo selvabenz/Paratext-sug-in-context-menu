@@ -22,6 +22,68 @@ namespace NoteSuggestionsTests
         }
         public static void Run(Action<string, Action> test)
         {
+            test("apply saves decision then resolves the original note", delegate {
+                var f = new Fixture(); string root = Root(), id = f.Service().ReadQueueBook(1).Single().StableId;
+                using (var q = Queue(f, root)) { Field<CheckBox>(q, "reviewed").Checked = true; Call(q, "Decide", "Applied"); Check(f.Writes == 1 && f.Resolved && f.Resolves == 1 && !f.LockHeld); q.Close(); }
+                using (var p = new ReviewProgress(root, f.ProjectId)) Check(p.Get(id).Outcome == "Applied" && p.Get(id).Resolution == "Resolved");
+            });
+            test("rejection resolves note but never edits Scripture", delegate {
+                var f = new Fixture(); using (var q = Queue(f, Root()))
+                { Field<TextBox>(q, "comment").Text = "Keep the existing reading"; Call(q, "Decide", "Rejected"); Check(f.Writes == 0 && f.Resolved && f.Resolves == 1); q.Close(); }
+            });
+            test("manual completed and no-change decisions resolve note", delegate {
+                var f = new Fixture(); using (var q = Queue(f, Root()))
+                { Field<TextBox>(q, "comment").Text = "Verified no change needed"; Field<CheckBox>(q, "reviewed").Checked = true; Call(q, "Decide", "Completed manually"); Check(f.Writes == 0 && f.Resolved); q.Close(); }
+            });
+            test("thread remains open until every QA proposal has a decision", delegate {
+                var f = new Fixture(); f.Replies.Add(Fixture.Comment(Fixture.Qa("Grammar", "பழைய", "வேறு", "Yes")));
+                string root = Root(); var ids = f.Service().ReadQueueBook(1).Select(c => c.StableId).ToArray();
+                using (var q = Queue(f, root))
+                {
+                    Field<TextBox>(q, "comment").Text = "First decision"; Call(q, "Decide", "Rejected"); Check(!f.Resolved && f.Resolves == 0 && Field<NoteCandidate>(q, "current") != null);
+                    Field<TextBox>(q, "comment").Text = "Second decision"; Call(q, "Decide", "Rejected"); Check(f.Resolved && f.Resolves == 1); q.Close();
+                }
+                using (var p = new ReviewProgress(root, f.ProjectId)) Check(ids.All(id => p.Get(id).Resolution == "Resolved"));
+            });
+            test("notes lock failure resumes resolution without repeating an applied edit", delegate {
+                var f = new Fixture { NotesLockAvailable = false }; string root = Root(), id = f.Service().ReadQueueBook(1).Single().StableId;
+                using (var q = Queue(f, root)) { Field<CheckBox>(q, "reviewed").Checked = true; Call(q, "Decide", "Applied"); Check(f.Writes == 1 && !f.Resolved && Field<NoteCandidate>(q, "current") != null); q.Close(); }
+                using (var p = new ReviewProgress(root, f.ProjectId)) Check(p.Get(id).Outcome == "Applied" && p.Get(id).ResolutionPending);
+                f.NotesLockAvailable = true;
+                using (var q = Queue(f, root)) { Check(!Field<Button>(q, "apply").Enabled); Call(q, "FinishResolution"); Check(f.Writes == 1 && f.Resolved && f.Resolves == 1); q.Close(); }
+            });
+            test("lost local resolve acknowledgement is idempotent across reopen", delegate {
+                var f = new Fixture(); string root = Root(); var c = f.Service().ReadQueueBook(1).Single();
+                using (var p = new ReviewProgress(root, f.ProjectId)) p.Save(new ReviewRecord { Id = c.StableId, Outcome = "Rejected", Comment = "reviewed", Resolution = "Pending", Discussion = c.DiscussionKey });
+                f.Resolved = true;
+                using (var q = Queue(f, root)) { Check(Field<NoteCandidate>(q, "current") != null); Call(q, "FinishResolution"); Check(f.Resolves == 0 && f.Writes == 0); q.Close(); }
+                using (var p = new ReviewProgress(root, f.ProjectId)) Check(p.Get(c.StableId).Resolution == "Resolved");
+            });
+            test("changed discussion cannot be resolved automatically", delegate {
+                var f = new Fixture(); var s = f.Service(); var c = s.ReadQueueBook(1).Single(); f.Replies.Add(Fixture.Comment("Wait for a reviewer"));
+                bool refused = false; System.Collections.Generic.List<string> ids;
+                try { s.ResolveReviewedThread(c, c.DiscussionKey, id => true, out ids); } catch (InvalidOperationException) { refused = true; }
+                Check(refused && !f.Resolved && f.Resolves == 0 && !f.LockHeld);
+            });
+            test("unverified note resolution stays pending for retry", delegate {
+                var f = new Fixture { IgnoreResolve = true }; string root = Root(), id = f.Service().ReadQueueBook(1).Single().StableId;
+                using (var q = Queue(f, root)) { Field<TextBox>(q, "comment").Text = "Reject"; Call(q, "Decide", "Rejected"); Check(!f.Resolved && f.Resolves == 1); q.Close(); }
+                using (var p = new ReviewProgress(root, f.ProjectId)) Check(p.Get(id).ResolutionPending);
+                f.IgnoreResolve = false;
+                using (var q = Queue(f, root)) { Call(q, "FinishResolution"); Check(f.Resolved && f.Writes == 0); q.Close(); }
+            });
+            test("old completed decisions are not automatically resolved on upgrade", delegate {
+                var f = new Fixture(); var c = f.Service().ReadQueueBook(1).Single(); string root = Root();
+                using (var p = new ReviewProgress(root, f.ProjectId)) p.Save(new ReviewRecord { Id = c.StableId, Outcome = "Rejected", Comment = "old decision" });
+                using (var q = Queue(f, root)) { Check(Field<NoteCandidate>(q, "current") == null && !f.Resolved && f.Resolves == 0); q.Close(); }
+            });
+            test("pending resolution with a missing source remains visible as recovery work", delegate {
+                var f = new Fixture(); var c = f.Service().ReadQueueBook(1).Single(); string root = Root();
+                using (var p = new ReviewProgress(root, f.ProjectId)) p.Save(new ReviewRecord { Id = c.StableId, Outcome = "Rejected", Resolution = "Pending", Discussion = c.DiscussionKey });
+                f.Notes.Clear();
+                using (var q = Queue(f, root)) { Check(Field<Label>(q, "heading").Text.Contains("missing/changed")); q.Close(); }
+                using (var p = new ReviewProgress(root, f.ProjectId)) Check(p.Outstanding().Single().Id == c.StableId);
+            });
             test("queue identity survives discussion replies", delegate {
                 var f = new Fixture(); var s = f.Service(); var first = s.ReadQueueBook(1).Single();
                 f.Replies.Add(Fixture.Comment("Human discussion")); var next = s.ReadQueueBook(1).Single();
@@ -42,11 +104,12 @@ namespace NoteSuggestionsTests
                 var f = new Fixture(); using (var q = Queue(f, Root())) { Check(f.Navigations == 1 && f.Writes == 0); f.ActiveVerse = 8; Check(f.Writes == 0); q.Close(); }
             });
             test("decision advances to next note and later retains its draft", delegate {
-                var f = new Fixture(); var anchor = f.Anchor;
+                var f = new Fixture(); var anchor = f.Anchor; bool secondResolved = false;
                 f.Notes.Add(Stub<Paratext.PluginInterfaces.IProjectNote>.Create((m, a) => {
                     switch (m.Name) {
                         case "get_Anchor": return anchor;
-                        case "get_IsResolved": return false;
+                        case "get_IsResolved": return secondResolved;
+                        case "Resolve": secondResolved = true; return null;
                         case "get_Comments": return new[] { Fixture.Comment(Fixture.Qa("Grammar", "பழைய", "வேறு", "Yes")) };
                         default: throw new NotSupportedException(m.Name);
                     }

@@ -1,3 +1,9 @@
+## 0.2.0-preview.2 note resolution validation
+
+104 synthetic checks cover the existing queue/writer plus original-note resolution after Apply, Reject and manual completion; multi-proposal thread deferral; notes-lock failure after a verified Scripture edit; idempotent already-resolved recovery; changed discussion refusal; resolution verification failure; compatibility with older records; and missing-source recovery notices. Fixtures assert a project-notes lock is held when Resolve is called.
+
+Real-host note-resolution acceptance for this update is pending. Earlier real-host queue/writer results below remain historical evidence and did not resolve notes.
+
 ## 0.2.0-preview.1 queue validation
 
 94 automated checks pass against synthetic fixtures. Added coverage verifies stable source identities across later discussion, source changes under lock, explicit pinned targets while the active reference changes, no writes during indexing/navigation, decision-driven advancement, saved deferred drafts, duplicate blocking, apply/reject consent, persisted comments, pause/reopen, uncertain apply recovery, exclusive sessions, Unicode/multiline XML and CSV, atomic updates, and 16,000 pending lookups. This does not establish 16,000 real-host edits or a full-project performance benchmark.

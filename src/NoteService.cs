@@ -10,10 +10,10 @@ namespace ParatextNoteSuggestions
     public sealed class NoteCandidate
     {
         public Proposal Proposal;
-        public string Key, StableId, NoteText, AnchorText, Before, After, DisplayReference;
+        public string Key, StableId, DiscussionKey, NoteText, AnchorText, Before, After, DisplayReference;
         public IVerseRef TargetReference;
         public int Book, Chapter, FirstVerse, LastVerse;
-        public bool CrossChapter;
+        public bool CrossChapter, IsResolved;
     }
     sealed class RecoveryRecord
     {
@@ -53,13 +53,13 @@ namespace ParatextNoteSuggestions
             queueMode = true; book = targetBook; chapter = targetChapter; firstVerse = start; lastVerse = end;
         }
         public IEnumerable<int> QueueBooks() { return project.AvailableBooks.Select(b => b.Number).OrderBy(b => b); }
-        public List<NoteCandidate> ReadQueueBook(int number)
-        { return new NoteService(this, number, 0, 0, Int32.MaxValue).ReadCandidates().Where(c => c.Proposal.FullNote.TrimStart().StartsWith("[AI-QA ", StringComparison.Ordinal)).ToList(); }
+        public List<NoteCandidate> ReadQueueBook(int number, bool includeResolved = false)
+        { return new NoteService(this, number, 0, 0, Int32.MaxValue).ReadCandidates(includeResolved).Where(c => c.Proposal.FullNote.TrimStart().StartsWith("[AI-QA ", StringComparison.Ordinal)).ToList(); }
         public NoteService ForQueueItem(NoteCandidate item)
         { return new NoteService(this, item.Book, item.Chapter, item.FirstVerse, item.LastVerse); }
-        public NoteCandidate ReloadQueueItem(NoteCandidate item)
+        public NoteCandidate ReloadQueueItem(NoteCandidate item, bool includeResolved = false)
         {
-            var matches = ForQueueItem(item).ReadCandidates().Where(c => c.StableId == item.StableId).ToList();
+            var matches = ForQueueItem(item).ReadCandidates(includeResolved).Where(c => c.StableId == item.StableId).ToList();
             if (matches.Count != 1) throw new InvalidOperationException("The queued source changed, was resolved, or has duplicate identities. Review this item in Paratext before continuing.");
             return matches[0];
         }
@@ -77,13 +77,13 @@ namespace ParatextNoteSuggestions
             return state.Project.ID + "|" + state.VerseRef + "|" + (state.Selections == null ? "" : String.Join("|", state.Selections.OfType<IScriptureTextSelection>()
                 .Select(s => s.VerseRefStart + ":" + s.VerseRefEnd + ":" + s.Offset + ":" + s.SelectedText + ":" + s.BeforeContext + ":" + s.AfterContext)));
         }
-        public List<NoteCandidate> ReadCandidates()
+        public List<NoteCandidate> ReadCandidates(bool includeResolved = false)
         {
             CheckContext();
             var result = new List<NoteCandidate>();
-            foreach (var note in project.GetNotes(book, chapter, true))
+            foreach (var note in project.GetNotes(book, chapter, !includeResolved))
             {
-                if (note.IsResolved || note.Anchor == null || note.Anchor.VerseRefStart == null || note.Anchor.VerseRefEnd == null) continue;
+                if ((!includeResolved && note.IsResolved) || note.Anchor == null || note.Anchor.VerseRefStart == null || note.Anchor.VerseRefEnd == null) continue;
                 var a = note.Anchor;
                 if (a.VerseRefStart.BookNum != book || (chapter != 0 && (a.VerseRefStart.ChapterNum > chapter || a.VerseRefEnd.ChapterNum < chapter))) continue;
                 int start = a.VerseRefStart.ChapterNum == chapter ? a.VerseRefStart.VerseNum : 0;
@@ -104,7 +104,7 @@ namespace ParatextNoteSuggestions
                     if (proposal.Route == ProposalRoute.Apply && source.Index != comments.Count - 1) proposal.Route = ProposalRoute.Review;
                     var candidate = Candidate(note, proposal, threadKey + ":" + source.Index, String.Join("\r\n\r\n--- Comment ---\r\n\r\n", comments.Select(Plain)));
                     var comment = comments[source.Index];
-                    candidate.StableId = NoteParser.Hash(a.VerseRefStart + "|" + a.VerseRefEnd + "|" + comment.Created.ToString("O") + "|" + (comment.Author == null ? "" : comment.Author.Name) + "|" + source.Text);
+                    candidate.StableId = SourceId(note, comment);
                     result.Add(candidate);
                 }
             }
@@ -125,10 +125,42 @@ namespace ParatextNoteSuggestions
             return NoteParser.Hash(a.VerseRefStart + "|" + a.VerseRefEnd + "|" + a.Offset + "|" + a.SelectedText + "|" + a.BeforeContext + "|" + a.AfterContext + "|" +
                 String.Join("|", note.Comments.Select(c => c.Created.ToString("O") + ":" + (c.Author == null ? "" : c.Author.Name) + ":" + Plain(c))));
         }
+        static string DiscussionKey(IProjectNote note)
+        { return NoteParser.Hash(String.Join("|", note.Comments.Select(c => c.Created.ToString("O") + ":" + (c.Author == null ? "" : c.Author.Name) + ":" + Plain(c)))); }
+        static string SourceId(IProjectNote note, IComment comment)
+        { return NoteParser.Hash(note.Anchor.VerseRefStart + "|" + note.Anchor.VerseRefEnd + "|" + comment.Created.ToString("O") + "|" + (comment.Author == null ? "" : comment.Author.Name) + "|" + Plain(comment)); }
+        List<IProjectNote> FindSourceNotes(NoteCandidate candidate)
+        {
+            return project.GetNotes(candidate.Book, candidate.Chapter, false).Where(n => n.Anchor != null && n.Anchor.VerseRefStart != null && n.Anchor.VerseRefEnd != null &&
+                n.Comments.Count(c => SourceId(n, c) == candidate.StableId) > 0).ToList();
+        }
+        // Separate from the Scripture transaction: the durable decision must already exist.
+        public bool ResolveReviewedThread(NoteCandidate candidate, string reviewedDiscussion, Func<string, bool> completed, out List<string> sourceIds)
+        {
+            sourceIds = new List<string>();
+            bool revoked = false;
+            using (var writeLock = project.RequestWriteLock(plugin, delegate { revoked = true; }, WriteLockScope.ProjectNotes))
+            {
+                if (writeLock == null) throw new InvalidOperationException("Decision saved locally, but a project-notes write lock is unavailable. Retry note resolution; do not apply the correction again.");
+                var matches = FindSourceNotes(candidate);
+                if (matches.Count != 1) throw new InvalidOperationException("Decision saved, but the source note is missing or ambiguous. Resolve it manually in Paratext after checking the source.");
+                var note = matches[0];
+                sourceIds = note.Comments.Where(c => Plain(c).TrimStart().StartsWith("[AI-QA ", StringComparison.Ordinal)).Select(c => SourceId(note, c)).ToList();
+                if (sourceIds.Distinct().Count() != sourceIds.Count) throw new InvalidOperationException("Duplicate proposals prevent automatic note resolution.");
+                if (note.IsResolved) return true; // Idempotent recovery after a successful resolve but failed local acknowledgement.
+                if (DiscussionKey(note) != reviewedDiscussion) throw new InvalidOperationException("The source discussion changed after the decision. Inspect and resolve the note manually in Paratext, then retry note resolution.");
+                if (!sourceIds.All(completed)) return false; // Do not hide other unreviewed proposals in the same note.
+                if (revoked) throw new InvalidOperationException("The project-notes write lock was withdrawn. Retry note resolution.");
+                note.Resolve(writeLock); writeLock.SendNotifications();
+                var saved = FindSourceNotes(candidate);
+                if (saved.Count != 1 || !saved[0].IsResolved) throw new InvalidOperationException("Note resolution was submitted but not verified. Retry note resolution; the Scripture correction will not be repeated.");
+            }
+            return true;
+        }
         static NoteCandidate Candidate(IProjectNote note, Proposal proposal, string key, string text)
         {
             var a = note.Anchor;
-            return new NoteCandidate { Proposal = proposal, Key = key, TargetReference = a.VerseRefStart, NoteText = text, AnchorText = a.SelectedText, Before = a.BeforeContext, After = a.AfterContext,
+            return new NoteCandidate { Proposal = proposal, Key = key, DiscussionKey = DiscussionKey(note), IsResolved = note.IsResolved, TargetReference = a.VerseRefStart, NoteText = text, AnchorText = a.SelectedText, Before = a.BeforeContext, After = a.AfterContext,
                 Book = a.VerseRefStart.BookNum, Chapter = a.VerseRefStart.ChapterNum, FirstVerse = a.VerseRefStart.VerseNum, LastVerse = a.VerseRefEnd.VerseNum,
                 CrossChapter = a.VerseRefStart.BookNum != a.VerseRefEnd.BookNum || a.VerseRefStart.ChapterNum != a.VerseRefEnd.ChapterNum,
                 DisplayReference = a.VerseRefStart + (a.VerseRefStart.ToString() == a.VerseRefEnd.ToString() ? "" : " – " + a.VerseRefEnd) };

@@ -46,7 +46,8 @@ namespace NoteSuggestionsTests
         public Dictionary<string, List<IUSFMToken>> Serialized = new Dictionary<string, List<IUSFMToken>>();
         public NoteSuggestionsPlugin Plugin = new NoteSuggestionsPlugin();
         public bool Editable = true, LockAvailable = true, Resolved, IgnorePut, Revoke, ThrowPut;
-        public bool LockHeld;
+        public bool LockHeld, NotesLockHeld, NotesLockAvailable = true, ThrowResolve, IgnoreResolve;
+        public int Resolves;
         public int Writes, Released, Notifications, History, Navigations, ActiveVerse = 3;
         public List<IComment> Replies = new List<IComment>();
         public string ProjectId = Guid.NewGuid().ToString(), NoteText, AnchorText = "பழைய", Before = "", After = "", DiskFile;
@@ -61,6 +62,10 @@ namespace NoteSuggestionsTests
             var note = Stub<IProjectNote>.Create((m, a) => {
                 switch(m.Name) {
                     case "get_IsResolved": return Resolved;
+                    case "Resolve":
+                        if (!LockHeld || !NotesLockHeld) throw new InvalidOperationException("Notes lock required");
+                        if (ThrowResolve) throw new InvalidOperationException("Injected note resolution failure");
+                        Resolves++; if (!IgnoreResolve) Resolved = true; return null;
                     case "get_Anchor": return Anchor;
                     case "get_Comments": return new List<IComment> { Comment(NoteText) }.Concat(Replies).ToList();
                     default: throw new NotSupportedException(m.Name);
@@ -76,9 +81,10 @@ namespace NoteSuggestionsTests
                     case "GetNotes": return Notes;
                     case "CanEdit": return Editable;
                     case "RequestWriteLock":
-                        if (!LockAvailable) return null;
-                        LockHeld = true;
-                        var value = Stub<IWriteLock>.Create((lm, la) => { if(lm.Name == "Dispose") { LockHeld = false; Released++; return null; } if(lm.Name == "SendNotifications") { Notifications++; return null; } throw new NotSupportedException(lm.Name); });
+                        bool notesLock = a.Length == 3 && a[2] is WriteLockScope;
+                        if (!LockAvailable || (notesLock && !NotesLockAvailable)) return null;
+                        LockHeld = true; NotesLockHeld = notesLock;
+                        var value = Stub<IWriteLock>.Create((lm, la) => { if(lm.Name == "Dispose") { LockHeld = false; NotesLockHeld = false; Released++; return null; } if(lm.Name == "SendNotifications") { Notifications++; return null; } throw new NotSupportedException(lm.Name); });
                         if (Revoke) ((Action<IWriteLock>)a[1])(value);
                         return value;
                     case "GetUSFMTokens": return Tokens.ToList();

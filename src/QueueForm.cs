@@ -24,10 +24,12 @@ namespace ParatextNoteSuggestions
         readonly CheckBox reviewed = new CheckBox { Text = "I reviewed this exact correction", AutoSize = true };
         readonly CheckBox deletion = new CheckBox { Text = "Explicitly delete the original text", AutoSize = true };
         readonly Button apply = Button("Apply and next"), reject = Button("Reject and next"), manual = Button("Completed manually / no change"), retry = Button("Verified no edit; allow retry"), pause = Button("Pause"), later = Button("Leave for later"), back = Button("Return to queued passage");
+        readonly Button resolve = Button("Retry note resolution");
         NoteCandidate current;
         int position = -1, completed;
         bool paused, busy, populating, indexing = true, blocked;
         bool resourcesDisposed;
+        string recoveryNotice = "";
         public QueueForm(NoteService service, string progressRoot = null)
         {
             owner = service;
@@ -54,7 +56,7 @@ namespace ParatextNoteSuggestions
             var sourceTab = new TabPage("Full note and discussion"); sourceTab.Controls.Add(source);
             tabs.TabPages.Add(correctionTab); tabs.TabPages.Add(sourceTab); root.Controls.Add(tabs);
             var actions = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = true };
-            foreach (var b in new[] { apply, reject, manual, retry, later, back, pause }) actions.Controls.Add(b);
+            foreach (var b in new[] { apply, reject, manual, retry, resolve, later, back, pause }) actions.Controls.Add(b);
             var export = Button("Export decisions..."); actions.Controls.Add(export); root.Controls.Add(actions);
             status.Dock = DockStyle.Fill; root.Controls.Add(status); Controls.Add(root);
             status.Text = "Indexing unresolved AI-QA notes, one book at a time. Pause or close to stop. No Scripture changes occur during indexing.";
@@ -62,6 +64,10 @@ namespace ParatextNoteSuggestions
             apply.Click += delegate { Decide("Applied"); }; reject.Click += delegate { Decide("Rejected"); };
             manual.Click += delegate { Decide("Completed manually"); };
             retry.Click += delegate { Retry(); };
+            resolve.Click += delegate {
+                if (!resolve.Enabled) return;
+                Guard(delegate { busy = true; EnableActions(); try { FinishResolution(); } finally { busy = false; EnableActions(); } });
+            };
             pause.Click += delegate {
                 Guard(delegate {
                     SaveDraft(); paused = !paused; pause.Text = paused ? "Resume" : "Pause";
@@ -113,8 +119,10 @@ namespace ParatextNoteSuggestions
             if (books.Count > 0)
             {
                 int book = books.Peek();
-                foreach (var c in owner.ReadQueueBook(book))
+                foreach (var c in owner.ReadQueueBook(book, true))
                 {
+                    var saved = progress.Get(c.StableId);
+                    if (c.IsResolved && (saved == null || !saved.Completed || String.IsNullOrEmpty(saved.Resolution))) continue;
                     if (!seen.Add(c.StableId)) duplicateIds.Add(c.StableId);
                     items.Add(c);
                 }
@@ -123,10 +131,12 @@ namespace ParatextNoteSuggestions
                 return;
             }
             indexTimer.Stop(); indexing = false;
+            int missing = progress.Outstanding().Count(r => !seen.Contains(r.Id));
+            if (missing > 0) recoveryNotice = "\r\n" + missing + " interrupted decision(s) have missing/changed sources. Export decisions and inspect Paratext history/notes manually.";
             items.Sort((a, b) => { int n = a.Book.CompareTo(b.Book); if (n == 0) n = a.Chapter.CompareTo(b.Chapter); if (n == 0) n = a.FirstVerse.CompareTo(b.FirstVerse); return n == 0 ? StringComparer.Ordinal.Compare(a.StableId, b.StableId) : n; });
             completed = items.Count(c => { var r = progress.Get(c.StableId); return r != null && r.Completed; });
             var cursor = progress.Cursor();
-            if (cursor != null) { int found = items.FindIndex(c => c.StableId == cursor.Id); if (found >= 0 && !(progress.Get(cursor.Id) ?? new ReviewRecord()).Completed) position = found - 1; }
+            if (cursor != null) { int found = items.FindIndex(c => c.StableId == cursor.Id); var saved = progress.Get(cursor.Id); if (found >= 0 && (saved == null || !saved.Completed || saved.ResolutionPending)) position = found - 1; }
             Next();
         }
         void Next()
@@ -134,16 +144,16 @@ namespace ParatextNoteSuggestions
             draftTimer.Stop(); current = null; blocked = false;
             while (++position < items.Count)
             {
-                var r = progress.Get(items[position].StableId); if (r != null && r.Completed) continue;
+                var r = progress.Get(items[position].StableId); if (r != null && r.Completed && !r.ResolutionPending) continue;
                 current = items[position]; break;
             }
             if (current == null)
             {
-                heading.Text = owner.ProjectName + " - " + completed + " / " + items.Count + " reviewed";
+                heading.Text = owner.ProjectName + " - " + completed + " / " + items.Count + " reviewed" + recoveryNotice;
                 source.Text = "End of this pass. Resume to revisit items left for later, or close and reopen to scan for new notes.";
                 paused = true; pause.Text = "Resume"; EnableActions(); return;
             }
-            try { current = owner.ReloadQueueItem(current); }
+            try { current = owner.ReloadQueueItem(current, ResolutionPending()); }
             catch (Exception ex) { blocked = true; status.Text = ex.Message; }
             if (duplicateIds.Contains(current.StableId)) blocked = true;
             var previous = progress.Get(current.StableId);
@@ -151,7 +161,7 @@ namespace ParatextNoteSuggestions
             populating = true;
             source.Text = current.NoteText; original.Text = current.Proposal.Original; replacement.Text = current.Proposal.Suggested;
             comment.Text = ""; region.SelectedItem = current.Proposal.Region; deletion.Checked = false; reviewed.Checked = false;
-            var restore = previous != null && previous.Outcome == "Pending apply" ? previous : (draft != null && draft.Id == current.StableId ? draft : previous);
+            var restore = previous != null && (previous.Outcome == "Pending apply" || previous.Completed) ? previous : (draft != null && draft.Id == current.StableId ? draft : previous);
             if (restore != null)
             {
                 original.Text = restore.Original; replacement.Text = restore.Replacement; comment.Text = restore.Comment;
@@ -159,18 +169,19 @@ namespace ParatextNoteSuggestions
                 deletion.Checked = restore.Outcome == "Draft deletion";
             }
             populating = false;
-            heading.Text = owner.ProjectName + " | " + current.DisplayReference + " | " + current.Proposal.Pass + " | " + current.Proposal.Category + "\r\n" + completed + " / " + items.Count + " reviewed - " + current.Proposal.Route;
-            if (!blocked) status.Text = Pending() ? "An earlier apply did not finish recording. Inspect Paratext history and the passage, then confirm completed manually or confirm no edit before retrying." : "Waiting for Apply or Reject. Browse references freely; Return brings you back. Comments/progress stay on this computer; notes stay unresolved.";
+            heading.Text = owner.ProjectName + " | " + current.DisplayReference + " | " + current.Proposal.Pass + " | " + current.Proposal.Category + "\r\n" + completed + " / " + items.Count + " reviewed - " + current.Proposal.Route + recoveryNotice;
+            if (!blocked) status.Text = ResolutionPending() ? "Decision saved locally. Retry note resolution to finish; the Scripture correction will not be repeated." : Pending() ? "An earlier apply did not finish recording. Inspect Paratext history and the passage, then confirm completed manually or confirm no edit before retrying." : "Waiting for Apply or Reject. Browse references freely. Comments/progress stay local; the note resolves when all its proposals have decisions.";
             else status.Text = "Source changed, unavailable, or duplicate identity. Automatic Apply is blocked. Inspect in Paratext; leave for later or record a commented manual decision.";
             SaveDraft(); EnableActions();
             owner.Navigate(current);
             Activate();
         }
         bool Pending() { var r = current == null ? null : progress.Get(current.StableId); return r != null && r.Outcome == "Pending apply"; }
+        bool ResolutionPending() { var r = current == null ? null : progress.Get(current.StableId); return r != null && r.ResolutionPending; }
         ReviewRecord Record(string outcome)
         {
             return new ReviewRecord { Id = current.StableId, Outcome = outcome, Reference = current.DisplayReference, Category = current.Proposal.Category,
-                Original = original.Text, Replacement = deletion.Checked ? "" : replacement.Text, Comment = comment.Text, Region = region.SelectedItem == null ? "" : region.SelectedItem.ToString() };
+                Original = original.Text, Replacement = deletion.Checked ? "" : replacement.Text, Comment = comment.Text, Discussion = current.DiscussionKey, Region = region.SelectedItem == null ? "" : region.SelectedItem.ToString() };
         }
         void SaveDraft()
         {
@@ -185,15 +196,17 @@ namespace ParatextNoteSuggestions
         {
             bool ready = current != null && !paused && !busy && !indexing;
             bool pending = current != null && Pending();
+            bool decisionSaved = current != null && (progress.Get(current.StableId) ?? new ReviewRecord()).Completed;
             bool duplicate = current != null && duplicateIds.Contains(current.StableId);
-            apply.Enabled = ready && !pending && !blocked && reviewed.Checked && current.Proposal.Route != ProposalRoute.NoChange && (replacement.Text.Length > 0 || deletion.Checked);
-            reject.Enabled = ready && !pending && !duplicate && comment.Text.Trim().Length > 0;
-            manual.Enabled = ready && !duplicate && reviewed.Checked && comment.Text.Trim().Length > 0;
+            apply.Enabled = ready && !decisionSaved && !pending && !blocked && reviewed.Checked && current.Proposal.Route != ProposalRoute.NoChange && (replacement.Text.Length > 0 || deletion.Checked);
+            reject.Enabled = ready && !decisionSaved && !pending && !duplicate && comment.Text.Trim().Length > 0;
+            manual.Enabled = ready && !decisionSaved && !duplicate && reviewed.Checked && comment.Text.Trim().Length > 0;
             retry.Visible = pending; retry.Enabled = ready && pending && comment.Text.Trim().Length > 0;
+            resolve.Visible = ResolutionPending(); resolve.Enabled = ready && ResolutionPending() && !duplicate;
             later.Enabled = ready; back.Enabled = current != null && !busy;
             pause.Enabled = !busy;
-            original.Enabled = replacement.Enabled = comment.Enabled = region.Enabled = reviewed.Enabled = deletion.Enabled = !busy;
-            replacement.Enabled = !busy && !deletion.Checked;
+            original.Enabled = replacement.Enabled = comment.Enabled = region.Enabled = reviewed.Enabled = deletion.Enabled = !busy && !decisionSaved;
+            replacement.Enabled = !busy && !decisionSaved && !deletion.Checked;
         }
         void Decide(string outcome)
         {
@@ -220,10 +233,27 @@ namespace ParatextNoteSuggestions
                         }
                         else service.Apply(current, original.Text, record.Replacement, (ContentRegion)region.SelectedItem, true, deletion.Checked, beforeSubmit);
                     }
-                    progress.Save(record); completed++; Next();
+                    record.Resolution = "Pending";
+                    progress.Save(record); completed++; FinishResolution();
                 }
                 finally { busy = false; EnableActions(); }
             });
+        }
+        void FinishResolution()
+        {
+            var record = progress.Get(current.StableId);
+            if (record == null || !record.ResolutionPending) throw new InvalidOperationException("A saved decision is required before resolving the note.");
+            List<string> ids;
+            bool resolved = owner.ResolveReviewedThread(current, record.Discussion, delegate(string id) { var r = progress.Get(id); return r != null && r.Completed; }, out ids);
+            if (resolved)
+                foreach (string id in ids.Where(id => id != current.StableId))
+                {
+                    var peer = progress.Get(id); if (peer == null || !peer.Completed) continue;
+                    var updated = ReviewRecord.FromXml(peer.ToXml()); updated.Resolution = "Resolved"; progress.Save(updated);
+                }
+            var finished = ReviewRecord.FromXml(record.ToXml());
+            finished.Resolution = resolved ? "Resolved" : "Waiting for remaining proposals";
+            progress.Save(finished); Next();
         }
         void Retry()
         {
