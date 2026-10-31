@@ -15,7 +15,10 @@ The user's screenshot shows QA project notes with `Original:`, `Suggested:`, and
 1. Select a word or phrase, or place the cursor in a verse.
 2. Right-click and find **Note suggestions**.
 3. See the proposed corrections from the `Suggested:` fields of relevant unresolved QA notes.
-4. Choose a preview to read the full note, its author, reference, and discussion.
+4. Click a correction to replace its exact anchored word, sentence, or verse after the original text is revalidated. A separate **View source QA note** action opens the explanation.
+5. Save the actual project Scripture through Paratext's supported USFM editing API. The revised project text must be used by subsequent exports and normal Send/Receive.
+
+Exact replacement and saved USFM are confirmed requirements. They are not implemented yet. The existing interactive mockup demonstrates the earlier read-only design and must be updated before being used as an application preview.
 
 Direct, dynamically populated submenu previews are the preferred outcome, subject to API verification. A single context-menu command opening a suggestions panel is a fallback and does not complete the direct-preview requirement.
 
