@@ -6,7 +6,7 @@ Target: **Paratext 9.5.110.1 on Windows**.
 
 ## Status
 
-**0.1.0-preview.1** is a compiled Windows plugin built against the installed Paratext 9.5.110.1 interfaces (2.0.100.0), targeting .NET Framework 4.8. It includes 79 passing synthetic checks and a desktop UI apply/save test. Real-host loading, disposable-project export, and Send/Receive validation remain pending; this is a prerelease.
+**0.1.0-preview.2** is a compiled Windows plugin built against Paratext 9.5.110.1 interfaces (2.0.100.0), targeting .NET Framework 4.8. It includes 80 passing checks and real-host tests for loading, exact Scripture/footnote writes, ambiguity refusal, and revert in a disposable project. Export/Send-Receive acceptance remains pending; this is a prerelease.
 
 Get the package from [GitHub Releases](https://github.com/selvabenz/Paratext-sug-in-context-menu/releases). Read [INSTALL.md](INSTALL.md), [VALIDATION.md](VALIDATION.md), and the [developer handoff](DEVELOPER_HANDOFF.md) before using it.
 

@@ -2,9 +2,9 @@
 
 ## Release and status
 
-0.1.0-preview.1 is an initial working C# implementation for Windows Paratext 9.5.110.1. It compiles against installed `CorePluginInterfaces.dll` and `PluginInterfaces.dll`, both assembly version 2.0.100.0. Target .NET Framework 4.8, AnyCPU. This is a preview, not a claim of production readiness or completion of every structural edit category.
+0.1.0-preview.2 is an initial working C# implementation for Windows Paratext 9.5.110.1. It compiles against installed `CorePluginInterfaces.dll` and `PluginInterfaces.dll`, both assembly version 2.0.100.0. Target .NET Framework 4.8, AnyCPU. This is a preview, not a claim of production readiness or completion of every structural edit category.
 
-The active live IRVTam project was only read for note-format inventory. No live Scripture, note, project configuration, or installed plugin file was changed. Existing Paratext was left running. All write-path tests used synthetic API doubles. A separate desktop harness exercised the real WinForms review UI and saved a synthetic `.sfm` file in ignored build output.
+The plugin is now installed and loaded in the user's real Paratext host. Test writes targeted a separate synthetic NSTest project, with on-disk USFM comparisons for body and footnote corrections, ambiguity refusal, and revert. The user's session was saved and restarted normally with administrator approval for installation. IRVTam was not targeted by any plugin edit. See VALIDATION.md for the remaining export/Send-Receive boundary.
 
 ## Build
 
@@ -31,7 +31,7 @@ No NuGet restore or .NET SDK installation is needed. The build uses Windows' .NE
 
 ## Write invariant
 
-Capture project/passage/selection identity → check permission → obtain scope write lock → re-read the unresolved source note and current tokens → locate exactly one Original within the explicit region → change only that text token → request history point → submit `PutUSFMTokens` → send notifications → re-read and compare the serialized scope to the expected USFM → request post-edit history point.
+Capture project/passage/selection identity → check permission → create pre-edit history checkpoint → obtain scope write lock → re-read the unresolved source note and current tokens → locate exactly one Original within the explicit region → change only that text token → submit `PutUSFMTokens` → send notifications → verify saved USFM → release lock → create post-edit checkpoint. Never call MakeHistoryPoint while holding a write lock: the real host can invalidate that lock. This ordering bug was found and corrected during real-host testing.
 
 No raw project filesystem writes are used. No Send/Receive or export is invoked. QA note status is untouched. Stale source, conflicting proposals, unavailable/revoked locks, ambiguous repeats, unsupported region boundaries or changed active context block automatic actions. Failure messages distinguish an unverified submitted edit from a confirmed success; they do not promise transactional rollback.
 
@@ -41,7 +41,7 @@ The only supported structural writer is a deliberately small marker-rename opera
 
 ## API findings and tradeoffs
 
-- `PluginMenuEntry` has fixed location/callback/image data and a localization event, with no supported menu-opening population callback, writable label, submenu collection, or refresh method. Do not use internal host reflection or patch the UI to emulate one. A fixed command opens a real WinForms popup containing live correction labels. This extra click is a known UX difference from the original mockup.
+- `PluginMenuEntry` has fixed location/callback/image data and a localization event, with no supported menu-opening population callback, writable label, submenu collection, or refresh method. A fixed command opens a visible native proposal picker containing live correction buttons. Preview.1's invisible modal owner was removed because it made focus and action testing unreliable. This extra click remains a known UX difference from the original mockup.
 - The host callback supplies `IParatextChildState.Selections`. Current selection and verse are used; the API's mouse-under-pointer passage is not assumed.
 - `IProjectNote` exposes anchor, comments and resolved state, but not a stable ID or native tags. Fingerprint all comment text, creation/author metadata and anchor context. Uncertain duplicate identity refuses editing. Native tag filtering is not implemented.
 - Parsing rich-text paragraphs concatenates each paragraph's `FormattedString.Text` spans before extracting fields. Do not parse bold styling or screenshot OCR.
@@ -52,7 +52,7 @@ The only supported structural writer is a deliberately small marker-rename opera
 
 See VALIDATION.md for evidence and explicit pending real-host checks. Before stable release:
 
-1. Close the user's session normally, install on 9.5.110.1 and verify plugin discovery/loading and context-popup lifecycle in the actual host.
+1. Continue from the now-verified 9.5.110.1 loading and native proposal-window flow. Preserve the real-host lock/checkpoint ordering regression and the form-creation region-selection regression.
 2. In a disposable project, check real token offsets/flags and region inference, particularly paragraph endings, note-end markers, bridged verses and introductions. Confirm chapter-zero scope and the exact persistence/serialization behavior.
 3. Apply and reopen body/footnote/intro corrections, export USFM, compare the exact diff, then perform an authorized test Send/Receive between test copies. Investigate any normalization differences rather than silently accepting a mismatched post-write serialization.
 4. Confirm history-point behavior and safe recovery; do not advertise native undo before testing it.

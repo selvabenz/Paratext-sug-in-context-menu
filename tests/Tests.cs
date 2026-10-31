@@ -46,6 +46,7 @@ namespace NoteSuggestionsTests
         public Dictionary<string, List<IUSFMToken>> Serialized = new Dictionary<string, List<IUSFMToken>>();
         public NoteSuggestionsPlugin Plugin = new NoteSuggestionsPlugin();
         public bool Editable = true, LockAvailable = true, Resolved, IgnorePut, Revoke, ThrowPut;
+        public bool LockHeld;
         public int Writes, Released, Notifications, History, ActiveVerse = 3;
         public string ProjectId = Guid.NewGuid().ToString(), NoteText, AnchorText = "பழைய", Before = "", After = "", DiskFile;
         public IReadOnlyList<ISelection> Selections = new List<ISelection>();
@@ -74,7 +75,8 @@ namespace NoteSuggestionsTests
                     case "CanEdit": return Editable;
                     case "RequestWriteLock":
                         if (!LockAvailable) return null;
-                        var value = Stub<IWriteLock>.Create((lm, la) => { if(lm.Name == "Dispose") { Released++; return null; } if(lm.Name == "SendNotifications") { Notifications++; return null; } throw new NotSupportedException(lm.Name); });
+                        LockHeld = true;
+                        var value = Stub<IWriteLock>.Create((lm, la) => { if(lm.Name == "Dispose") { LockHeld = false; Released++; return null; } if(lm.Name == "SendNotifications") { Notifications++; return null; } throw new NotSupportedException(lm.Name); });
                         if (Revoke) ((Action<IWriteLock>)a[1])(value);
                         return value;
                     case "GetUSFMTokens": return Tokens.ToList();
@@ -83,7 +85,7 @@ namespace NoteSuggestionsTests
                         List<IUSFMToken> saved;
                         if (!Serialized.TryGetValue((string)a[0], out saved)) throw new InvalidOperationException("Unknown synthetic USFM");
                         return saved.ToList();
-                    case "MakeHistoryPoint": History++; return null;
+                    case "MakeHistoryPoint": if (LockHeld) throw new InvalidOperationException("History checkpoint invalidates active write locks"); History++; return null;
                     case "PutUSFMTokens":
                         Writes++;
                         if (ThrowPut) throw new InvalidOperationException("Injected save failure");
@@ -143,6 +145,7 @@ namespace NoteSuggestionsTests
         static void Reject(Action action) { try { action(); } catch(InvalidOperationException) { return; } throw new Exception("Expected a refusal"); }
         static void Apply(Fixture f, bool reviewed = false) { var s=f.Service(); var n=s.ReadCandidates()[0]; s.Apply(n,n.Proposal.Original,n.Proposal.Suggested,n.Proposal.Region,reviewed); }
         static TextPart Part(string text, ContentRegion region = ContentRegion.Body, int chapter = 1, int verse = 3, int index = 0) { return new TextPart {Text=text,Region=region,Chapter=chapter,Verse=verse,TokenIndex=index}; }
+        static IEnumerable<Control> Descendants(Control control) { foreach (Control child in control.Controls) { yield return child; foreach (var descendant in Descendants(child)) yield return descendant; } }
         [STAThread]
         public static int Main(string[] args)
         {
@@ -248,6 +251,7 @@ namespace NoteSuggestionsTests
             Test("unsafe structural instructions refused",()=>{var f=new Fixture();f.NoteText=Fixture.Qa("USFM marker","பழைய","Exchange verses 3 and 4","Yes");Reject(()=>f.Service().ApplyMarkerRename(f.Service().ReadCandidates()[0]));Eq(0,f.Writes);});
             Test("structural original cannot enter text action",()=>{var f=new Fixture();f.NoteText=Fixture.Qa("USFM marker","\\v 3","\\v 4","Yes");Reject(()=>Apply(f,true));Eq(0,f.Writes);});
             Test("native menu registration verified",()=>Eq(PluginMenuLocation.ScrTextContextMenuDefault,new NoteSuggestionsPlugin().PluginMenuEntries.First().Location));
+            Test("footnote region survives form creation",()=>{var f=new Fixture();f.NoteText=Fixture.Qa("Footnote / cross-reference","பழைய","புதிய","Yes").Replace("[AI-QA R2] Footnote / cross-reference","[AI-QA R2] Footnote");var s=f.Service();var ns=s.ReadCandidates();Eq(ContentRegion.Footnote,ns[0].Proposal.Region);using(var form=new ReviewForm(s,ns)){form.StartPosition=FormStartPosition.Manual;form.Location=new System.Drawing.Point(-2000,-2000);form.ShowInTaskbar=false;form.Show();Application.DoEvents();var combo=Descendants(form).OfType<ComboBox>().Single(c=>c.Items.Count==Enum.GetValues(typeof(ContentRegion)).Length);Eq(ContentRegion.Footnote,(ContentRegion)combo.SelectedItem);form.Close();}});
             Test("assembly target verified",()=>Eq(".NETFramework,Version=v4.8",((System.Runtime.Versioning.TargetFrameworkAttribute)Attribute.GetCustomAttribute(typeof(NoteSuggestionsPlugin).Assembly,typeof(System.Runtime.Versioning.TargetFrameworkAttribute))).FrameworkName));
             Console.WriteLine("RESULT: "+passed+" passed, "+failed+" failed. Synthetic fixtures only; no live project touched.");
             return failed==0?0:1;

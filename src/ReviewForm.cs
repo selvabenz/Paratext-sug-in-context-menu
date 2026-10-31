@@ -25,7 +25,9 @@ namespace ParatextNoteSuggestions
             service = noteService; notes = candidates;
             Text = "Note Suggestions · " + service.ProjectName + " · " + service.Reference + " · preview";
             Font = new Font("Segoe UI", 10); AutoScaleMode = AutoScaleMode.Dpi;
-            Size = new Size(1050, 780); MinimumSize = new Size(820, 650); StartPosition = FormStartPosition.CenterScreen;
+            var available = Screen.PrimaryScreen.WorkingArea;
+            Size = new Size(Math.Min(1050, available.Width - 30), Math.Min(780, available.Height - 30));
+            MinimumSize = new Size(Math.Min(820, available.Width - 30), Math.Min(650, available.Height - 30)); StartPosition = FormStartPosition.CenterScreen;
             var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 3, Padding = new Padding(12) };
             root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 34)); root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 66));
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); root.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); root.RowStyles.Add(new RowStyle(SizeType.Absolute, 60));
@@ -41,7 +43,10 @@ namespace ParatextNoteSuggestions
             for (int i = 0; i < 11; i++) detail.RowStyles.Add(new RowStyle(i == 8 ? SizeType.Percent : SizeType.AutoSize, i == 8 ? 100 : 0));
             metadata.AutoSize = true; metadata.MaximumSize = new Size(610, 0); metadata.Padding = new Padding(0, 4, 0, 8); detail.Controls.Add(metadata, 0, 0);
             detail.Controls.Add(new Label { Text = "Target region (verify before applying)", AutoSize = true }, 0, 1);
-            region.DropDownStyle = ComboBoxStyle.DropDownList; region.Dock = DockStyle.Top; region.DataSource = Enum.GetValues(typeof(ContentRegion)); detail.Controls.Add(region, 0, 2);
+            region.DropDownStyle = ComboBoxStyle.DropDownList; region.Dock = DockStyle.Top;
+            // A bound enum list resets its currency to Body when the host creates the form handle.
+            // Explicit items preserve the proposal's chosen region across handle/binding initialization.
+            region.Items.AddRange(Enum.GetValues(typeof(ContentRegion)).Cast<object>().ToArray()); detail.Controls.Add(region, 0, 2);
             detail.Controls.Add(new Label { Text = "Exact original text", AutoSize = true, Padding = new Padding(0, 8, 0, 0) }, 0, 3);
             ConfigureText(original, 66, false); detail.Controls.Add(original, 0, 4);
             detail.Controls.Add(new Label { Text = "Chosen replacement — literal text only for text actions", AutoSize = true, Padding = new Padding(0, 8, 0, 0) }, 0, 5);
@@ -109,14 +114,14 @@ namespace ParatextNoteSuggestions
         {
             var c = Current; if (c == null || !reviewed.Checked) return;
             try { service.Apply(c, original.Text, deletion.Checked ? "" : replacement.Text, (ContentRegion)region.SelectedItem, true, deletion.Checked); RefreshNotes(); status.Text = "Applied and verified in project USFM. The note remains unresolved. Export or Send/Receive normally when ready."; }
-            catch (Exception ex) { status.Text = ex.Message; MessageBox.Show(ex.Message, "Correction not applied or not verified", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+            catch (Exception ex) { service.ReportFailure(ex); status.Text = ex.Message; MessageBox.Show(ex.Message, "Correction not applied or not verified", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
         }
         void ApplyStructure()
         {
             var c = Current; if (c == null || !reviewed.Checked) return;
             if (original.Text != c.Proposal.Original || replacement.Text != c.Proposal.Suggested) { status.Text = "Marker review uses the exact source proposal; edited marker instructions are not accepted."; return; }
             try { service.ApplyMarkerRename(c); RefreshNotes(); status.Text = "Marker correction applied and verified in project USFM."; }
-            catch (Exception ex) { status.Text = ex.Message; MessageBox.Show(ex.Message, "Structural correction not applied or not verified", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+            catch (Exception ex) { service.ReportFailure(ex); status.Text = ex.Message; MessageBox.Show(ex.Message, "Structural correction not applied or not verified", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
         }
         void RefreshNotes()
         {

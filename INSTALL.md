@@ -1,15 +1,15 @@
 # Install the preview
 
-Version: 0.1.0-preview.1. Windows, Paratext 9.5.110.1, .NET Framework 4.8. The compiled plugin references the installed 2.0.100.0 interface assemblies; those proprietary host assemblies are not redistributed.
+Version: 0.1.0-preview.2. Windows, Paratext 9.5.110.1, .NET Framework 4.8. The compiled plugin references the installed 2.0.100.0 interface assemblies; those proprietary host assemblies are not redistributed.
 
-This is a preview with automated and synthetic desktop validation. It has not yet completed real-host loading, disposable-project export, or Send/Receive validation. Do the acceptance checks in VALIDATION.md before editing a working translation.
+This preview has automated and real-host validation for loading, exact body/footnote writes, ambiguity refusal, and revert in a disposable project. Export and Send/Receive acceptance remain pending. See VALIDATION.md for the exact boundary.
 
 ## Installation
 
 1. Download the release ZIP and its `.sha256` sidecar from this repository's GitHub release.
-2. Check the ZIP using `Get-FileHash -Algorithm SHA256 .\ParatextNoteSuggestions-0.1.0-preview.1.zip` against the sidecar. Extract the ZIP to a folder.
+2. Check the ZIP using `Get-FileHash -Algorithm SHA256 .\ParatextNoteSuggestions-0.1.0-preview.2.zip` against the sidecar. Extract the ZIP to a folder.
 3. Close Paratext yourself after saving your work. The installer refuses to run while Paratext is open.
-4. Open PowerShell as administrator in the extracted folder and run `powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1`. This is a process-local execution-policy choice, not a persistent policy change. The script checks the plugin hash and host version before copying the plugin into `Paratext 9\Plugins\ParatextNoteSuggestions`.
+4. In the extracted folder, run `powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1`. Approve the Windows administrator prompt if requested. This is a process-local execution-policy choice, not a persistent policy change. The script checks the plugin hash and host version, elevates if needed, installs into `Paratext 9\Plugins\ParatextNoteSuggestions`, and runs Paratext's official plugin-cache updater.
 5. Start Paratext and open a disposable test project. Check that **Note suggestions…** appears in the Scripture right-click menu and the project's Tools menu.
 
 For a different installation directory, pass `-ParatextDir 'D:\Apps\Paratext 9'`.

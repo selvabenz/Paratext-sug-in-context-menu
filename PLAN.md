@@ -1,6 +1,6 @@
 # Implementation plan
 
-Implementation update: a compiled **0.1.0-preview.1** now exists. This file retains the full target requirements. See [DEVELOPER_HANDOFF.md](DEVELOPER_HANDOFF.md), [RELEASE_NOTES.md](RELEASE_NOTES.md), and [VALIDATION.md](VALIDATION.md) for the implemented subset, the secondary-menu limitation, and pending real-host/export/Send-Receive acceptance checks.
+Implementation update: a compiled **0.1.0-preview.2** now exists. This file retains the full target requirements. See [DEVELOPER_HANDOFF.md](DEVELOPER_HANDOFF.md), [RELEASE_NOTES.md](RELEASE_NOTES.md), and [VALIDATION.md](VALIDATION.md) for the implemented subset, the secondary-menu limitation, and pending real-host/export/Send-Receive acceptance checks.
 
 ## Objective and scope
 

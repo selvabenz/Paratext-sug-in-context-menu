@@ -126,6 +126,9 @@ namespace ParatextNoteSuggestions
                 throw new InvalidOperationException("Choose one literal Tamil correction without English commentary, alternative separators, or omission placeholders. This preview does not apply Latin-text replacements; review those directly in Paratext.");
             int scope = region == ContentRegion.Introduction ? 0 : candidate.Chapter;
             if (!project.CanEdit(plugin, candidate.Book, scope)) throw new InvalidOperationException("You do not have editing permission for this passage.");
+            // In the real host, history checkpoints can release outstanding editor/plugin locks.
+            // Take the checkpoint before requesting our lock, then re-read all data under the new lock.
+            project.MakeHistoryPoint("Before Note Suggestions correction", true);
             bool revoked = false;
             using (var writeLock = project.RequestWriteLock(plugin, delegate { revoked = true; }, candidate.Book, scope))
             {
@@ -142,14 +145,13 @@ namespace ParatextNoteSuggestions
                 tokens[match.TokenIndex] = new ChangedTextToken(old, ExactEditor.Replace(old.Text, match));
                 string expected = project.ConvertToUSFMString(tokens);
                 if (revoked) throw new InvalidOperationException("The write lock was withdrawn. No edit was submitted.");
-                project.MakeHistoryPoint("Before Note Suggestions correction", true);
                 var recovery = new RecoveryRecord { ProjectId = projectId, Book = candidate.Book, Chapter = scope, Before = before, After = expected };
                 Recovery[projectId] = recovery;
                 project.PutUSFMTokens(writeLock, tokens, candidate.Book);
                 writeLock.SendNotifications();
                 Verify(candidate.Book, scope, expected);
-                project.MakeHistoryPoint("Note Suggestions correction", true);
             }
+            HistoryAfterWrite("Note Suggestions correction");
         }
         // Deliberately narrow structural operation: marker rename with identical associated text.
         // Verse/chapter numbering, note boundaries, attributes and verse exchanges remain review-only.
@@ -162,6 +164,7 @@ namespace ParatextNoteSuggestions
             if (!a.Success || !b.Success || a.Groups[2].Value != b.Groups[2].Value || a.Groups[1].Value == b.Groups[1].Value)
                 throw new InvalidOperationException("Only an exact heading/chapter-label marker rename with unchanged label text is supported in this preview. This structural proposal requires manual review in Paratext.");
             if (!project.CanEdit(plugin, candidate.Book, candidate.Chapter)) throw new InvalidOperationException("You do not have editing permission for this chapter.");
+            project.MakeHistoryPoint("Before Note Suggestions marker correction", true);
             bool revoked = false;
             using (var writeLock = project.RequestWriteLock(plugin, delegate { revoked = true; }, candidate.Book, candidate.Chapter))
             {
@@ -187,12 +190,21 @@ namespace ParatextNoteSuggestions
                 var reparsed = project.ConvertToUSFMTokens(expected, candidate.Book, candidate.Chapter, 0).ToList();
                 if (project.ConvertToUSFMString(reparsed) != expected) throw new InvalidOperationException("Paratext's USFM round-trip changed the structural proposal; review it manually.");
                 if (revoked) throw new InvalidOperationException("The write lock was withdrawn.");
-                project.MakeHistoryPoint("Before Note Suggestions marker correction", true);
                 Recovery[projectId] = new RecoveryRecord { ProjectId = projectId, Book = candidate.Book, Chapter = candidate.Chapter, Before = before, After = expected };
                 project.PutUSFMTokens(writeLock, reparsed, candidate.Book);
                 writeLock.SendNotifications(); Verify(candidate.Book, candidate.Chapter, expected);
-                project.MakeHistoryPoint("Note Suggestions marker correction", true);
             }
+            HistoryAfterWrite("Note Suggestions marker correction");
+        }
+        void HistoryAfterWrite(string message)
+        {
+            try { project.MakeHistoryPoint(message, true); }
+            catch (Exception ex) { ReportFailure(new InvalidOperationException("The USFM write was verified, but the post-edit history checkpoint failed.", ex)); }
+        }
+        public void ReportFailure(Exception error)
+        {
+            try { host.Log(plugin, "Note Suggestions error: {0}", error.ToString()); host.FlushLog(); }
+            catch { /* Diagnostics must not hide the actual edit result. */ }
         }
         void Verify(int bookNumber, int chapterNumber, string expected)
         {
@@ -204,6 +216,7 @@ namespace ParatextNoteSuggestions
             CheckContext(); RecoveryRecord record;
             if (!Recovery.TryGetValue(projectId, out record)) throw new InvalidOperationException("No edit from this plugin session is available to revert. Use Paratext project history for older changes.");
             if (!project.CanEdit(plugin, record.Book, record.Chapter)) throw new InvalidOperationException("Editing permission is unavailable.");
+            project.MakeHistoryPoint("Before reverting Note Suggestions correction", true);
             bool revoked = false;
             using (var writeLock = project.RequestWriteLock(plugin, delegate { revoked = true; }, record.Book, record.Chapter))
             {
@@ -212,11 +225,10 @@ namespace ParatextNoteSuggestions
                 if (current != record.After) throw new InvalidOperationException("The saved passage changed after the plugin edit. Reverting would overwrite another edit, so nothing was changed. Review project history.");
                 var tokens = project.ConvertToUSFMTokens(record.Before, record.Book, record.Chapter, 0).ToList();
                 if (project.ConvertToUSFMString(tokens) != record.Before || revoked) throw new InvalidOperationException("The original USFM could not be restored exactly; no revert was submitted.");
-                project.MakeHistoryPoint("Before reverting Note Suggestions correction", true);
                 project.PutUSFMTokens(writeLock, tokens, record.Book); writeLock.SendNotifications(); Verify(record.Book, record.Chapter, record.Before);
                 Recovery.Remove(projectId);
-                project.MakeHistoryPoint("Reverted Note Suggestions correction", true);
             }
+            HistoryAfterWrite("Reverted Note Suggestions correction");
         }
     }
 

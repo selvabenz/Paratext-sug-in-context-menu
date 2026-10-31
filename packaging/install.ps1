@@ -10,6 +10,15 @@ $hashLine = @(Get-Content -LiteralPath $checksumFile | Where-Object { $_ -match 
 if ($hashLine.Count -ne 1) { throw 'The plugin checksum entry is missing or ambiguous.' }
 $expectedHash = ($hashLine[0] -split '\s+')[0]
 if ((Get-FileHash -LiteralPath $sourceFile -Algorithm SHA256).Hash -ne $expectedHash) { throw 'The plugin checksum does not match the release manifest.' }
+$identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+$principal = New-Object Security.Principal.WindowsPrincipal($identity)
+if (!$WhatIfPreference -and !$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    $arguments = @('-NoProfile','-ExecutionPolicy','Bypass','-File', ('"' + $PSCommandPath + '"'), '-ParatextDir', ('"' + $ParatextDir + '"'))
+    $elevated = Start-Process -FilePath 'powershell.exe' -Verb RunAs -WindowStyle Hidden -ArgumentList $arguments -PassThru
+    $elevated.WaitForExit()
+    if ($elevated.ExitCode -ne 0) { throw 'The elevated installer failed or was cancelled.' }
+    return
+}
 $hostExe = Join-Path $ParatextDir 'Paratext.exe'
 if (!(Test-Path -LiteralPath $hostExe -PathType Leaf)) { throw "Paratext was not found at $ParatextDir" }
 $hostVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo($hostExe).FileVersion
@@ -20,5 +29,10 @@ $destinationFile = Join-Path $destinationDir 'ParatextNoteSuggestions.ptxplg'
 if ($PSCmdlet.ShouldProcess($destinationFile, 'Install Note Suggestions preview plugin')) {
     New-Item -ItemType Directory -Path $destinationDir -Force | Out-Null
     Copy-Item -LiteralPath $sourceFile -Destination $destinationFile -Force
+    $cacheUpdater = Join-Path $resolvedHost 'UpdateParatextPluginCache.exe'
+    if (Test-Path -LiteralPath $cacheUpdater -PathType Leaf) {
+        & $cacheUpdater
+        if ($LASTEXITCODE -ne 0) { throw 'The plugin file was installed, but Paratext cache refresh failed.' }
+    }
     Write-Output "Installed $destinationFile. Start Paratext, then use a disposable test project first."
 }

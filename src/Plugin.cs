@@ -11,7 +11,7 @@ using Paratext.PluginInterfaces;
 [assembly: AssemblyDescription("Category-aware QA note corrections for Paratext 9.5")]
 [assembly: AssemblyCompany("selvabenz")]
 [assembly: AssemblyVersion("0.1.0.0")]
-[assembly: AssemblyFileVersion("0.1.0.0")]
+[assembly: AssemblyFileVersion("0.1.0.2")]
 [assembly: TargetFramework(".NETFramework,Version=v4.8", FrameworkDisplayName = ".NET Framework 4.8")]
 
 namespace ParatextNoteSuggestions
@@ -20,8 +20,8 @@ namespace ParatextNoteSuggestions
     {
         public string Name { get { return "Note Suggestions"; } }
         public string Publisher { get { return "selvabenz"; } }
-        public Version Version { get { return new Version(0, 1, 0); } }
-        public string VersionString { get { return "0.1.0-preview.1"; } }
+        public Version Version { get { return new Version(0, 1, 0, 2); } }
+        public string VersionString { get { return "0.1.0-preview.2"; } }
         public string GetDescription(string locale) { return "Apply exact QA note corrections to project Scripture, with category-aware review."; }
         public IDataFileMerger GetMerger(IPluginHost host, string identifier) { return null; }
         public IEnumerable<PluginMenuEntry> PluginMenuEntries
@@ -41,36 +41,13 @@ namespace ParatextNoteSuggestions
                     throw new InvalidOperationException("This preview targets Paratext 9.5. Test compatibility before using another version.");
                 var service = new NoteService(this, host, state);
                 var candidates = service.ReadCandidates();
-                Action chosenAction = null;
-                using (var menu = new ContextMenuStrip())
+                using (var picker = new SuggestionPicker(candidates, state.VerseRef.ToString()))
                 {
-                    menu.Font = new Font("Segoe UI", 11);
-                    menu.ShowItemToolTips = true;
-                    menu.Items.Add(new ToolStripMenuItem("Note suggestions · " + state.VerseRef) { Enabled = false });
-                    if (candidates.Count == 0) menu.Items.Add(new ToolStripMenuItem("No unresolved notes for this passage") { Enabled = false });
-                    foreach (var candidate in candidates.Take(12))
-                    {
-                        var captured = candidate;
-                        string prefix = candidate.Proposal.Route == ProposalRoute.Apply ? "Apply: " : "Review: ";
-                        string label = candidate.Proposal.Suggested.Length == 0 ? candidate.Proposal.Category : candidate.Proposal.Suggested;
-                        var item = new ToolStripMenuItem(prefix + NoteParser.Preview(label, 64));
-                        item.ToolTipText = candidate.Proposal.Category + " · " + candidate.Proposal.Pass + "\n" + candidate.Proposal.Reason;
-                        item.Click += delegate { chosenAction = delegate { RunAction(service, captured); }; };
-                        menu.Items.Add(item);
-                    }
-                    menu.Items.Add(new ToolStripSeparator());
-                    menu.Items.Add("Review all notes / choose correction…", null, delegate { chosenAction = delegate { using (var form = new ReviewForm(service, candidates)) form.ShowDialog(); }; });
-                    menu.Items.Add("Revert last plugin edit…", null, delegate { chosenAction = delegate { ShowRevert(service); }; });
-                    // ContextMenuStrip needs a message loop while the host callback remains active.
-                    using (var owner = new MenuOwnerForm())
-                    {
-                        owner.Shown += delegate { menu.Show(owner, owner.PointToClient(Cursor.Position)); };
-                        // Close after the menu item Click event finishes so selected actions survive dropdown dismissal.
-                        menu.Closed += delegate { if (!owner.IsDisposed && owner.IsHandleCreated) owner.BeginInvoke(new MethodInvoker(owner.Close)); };
-                        owner.ShowDialog();
-                    }
+                    if (picker.ShowDialog() != DialogResult.OK) return;
+                    if (picker.SelectedCandidate != null) RunAction(service, picker.SelectedCandidate);
+                    else if (picker.RevertRequested) ShowRevert(service);
+                    else using (var form = new ReviewForm(service, candidates)) form.ShowDialog();
                 }
-                if (chosenAction != null) chosenAction();
             }
             catch (Exception ex) { MessageBox.Show(ex.Message, Name, MessageBoxButtons.OK, MessageBoxIcon.Warning); }
         }
@@ -79,7 +56,7 @@ namespace ParatextNoteSuggestions
             if (candidate.Proposal.Route != ProposalRoute.Apply)
             { using (var form = new ReviewForm(service, service.ReadCandidates(), candidate.Key)) form.ShowDialog(); return; }
             try { service.Apply(candidate, candidate.Proposal.Original, candidate.Proposal.Suggested, candidate.Proposal.Region, false); MessageBox.Show("Applied and verified in the project USFM. The QA note remains unresolved.", "Note Suggestions"); }
-            catch (Exception ex) { MessageBox.Show(ex.Message, "Correction not applied or not verified", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+            catch (Exception ex) { service.ReportFailure(ex); MessageBox.Show(ex.Message, "Correction not applied or not verified", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
         }
         internal static void ShowRevert(NoteService service)
         {
@@ -88,11 +65,41 @@ namespace ParatextNoteSuggestions
                 if (MessageBox.Show("Revert the last plugin edit in this project? Revert is available only while the saved post-edit chapter still matches exactly.", "Revert plugin edit", MessageBoxButtons.OKCancel) != DialogResult.OK) return;
                 service.Revert(); MessageBox.Show("Previous USFM restored and verified.", "Note Suggestions");
             }
-            catch (Exception ex) { MessageBox.Show(ex.Message, "Revert not verified", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+            catch (Exception ex) { service.ReportFailure(ex); MessageBox.Show(ex.Message, "Revert not verified", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
         }
     }
-    sealed class MenuOwnerForm : Form
+    public sealed class SuggestionPicker : Form
     {
-        public MenuOwnerForm() { ShowInTaskbar = false; FormBorderStyle = FormBorderStyle.None; StartPosition = FormStartPosition.Manual; Location = Cursor.Position; Size = new Size(1, 1); Opacity = 0; }
+        public NoteCandidate SelectedCandidate { get; private set; }
+        public bool RevertRequested { get; private set; }
+        public SuggestionPicker(IList<NoteCandidate> candidates, string reference)
+        {
+            Text = "Note suggestions · " + reference;
+            Font = new Font("Segoe UI", 10); AutoScaleMode = AutoScaleMode.Dpi;
+            StartPosition = FormStartPosition.CenterParent; ShowInTaskbar = false;
+            FormBorderStyle = FormBorderStyle.SizableToolWindow;
+            Size = new Size(620, Math.Min(650, 215 + Math.Min(12, candidates.Count) * 65)); MinimumSize = new Size(390, 215);
+            var list = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, Padding = new Padding(10) };
+            var label = new Label { Text = candidates.Count == 0 ? "No unresolved notes for this passage." : candidates.Count + " proposal(s). Apply entries change project Scripture; Review entries open the source and choices.", AutoSize = false, Height = 48, Width = 555 };
+            list.Controls.Add(label);
+            foreach (var candidate in candidates.Take(12))
+            {
+                var captured = candidate;
+                string prefix = candidate.Proposal.Route == ProposalRoute.Apply ? "Apply: " : "Review: ";
+                string value = candidate.Proposal.Suggested.Length == 0 ? candidate.Proposal.Category : candidate.Proposal.Suggested;
+                var button = new Button { Text = prefix + NoteParser.Preview(value, 65) + "\r\n" + candidate.Proposal.Category + " · " + candidate.Proposal.Pass, Width = 555, Height = 60, TextAlign = ContentAlignment.MiddleLeft, UseMnemonic = false };
+                button.Click += delegate { SelectedCandidate = captured; DialogResult = DialogResult.OK; };
+                list.Controls.Add(button);
+            }
+            var actions = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 90, Padding = new Padding(10), WrapContents = true };
+            var review = new Button { Text = "Review all / choose correction…", AutoSize = true };
+            review.Click += delegate { DialogResult = DialogResult.OK; };
+            var revert = new Button { Text = "Revert last plugin edit…", AutoSize = true };
+            revert.Click += delegate { RevertRequested = true; DialogResult = DialogResult.OK; };
+            var close = new Button { Text = "Close", AutoSize = true, DialogResult = DialogResult.Cancel };
+            CancelButton = close; actions.Controls.Add(review); actions.Controls.Add(revert); actions.Controls.Add(close);
+            Controls.Add(list); Controls.Add(actions);
+            list.SizeChanged += delegate { int width = Math.Max(280, list.ClientSize.Width - 40); foreach (Control control in list.Controls) control.Width = width; };
+        }
     }
 }
