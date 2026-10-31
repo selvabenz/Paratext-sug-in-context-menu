@@ -9,7 +9,7 @@ Reviewed queue decisions now resolve their original Paratext notes while comment
 - Recover pending resolution even if the note was already resolved before a restart. Missing sources remain visible as recovery work.
 - Pause/defer/close leave pending notes open; older preview.1 decisions are not bulk-resolved on upgrade.
 - Preserve local comments, CSV export, and normal Paratext synchronization of note status.
-- 104 synthetic checks pass. Updated-build real-host Resolve acceptance is tracked in VALIDATION.md.
+- 104 synthetic checks pass. Real-host Apply-and-resolve and Reject-and-resolve acceptance passed in disposable NSTest, including exact USFM comparison, local-only rejection comments, verified resolution and next-note navigation. Production Scripture/notes were unchanged.
 
 ---
 

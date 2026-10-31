@@ -2,7 +2,9 @@
 
 104 synthetic checks cover the existing queue/writer plus original-note resolution after Apply, Reject and manual completion; multi-proposal thread deferral; notes-lock failure after a verified Scripture edit; idempotent already-resolved recovery; changed discussion refusal; resolution verification failure; compatibility with older records; and missing-source recovery notices. Fixtures assert a project-notes lock is held when Resolve is called.
 
-Real-host note-resolution acceptance for this update is pending. Earlier real-host queue/writer results below remain historical evidence and did not resolve notes.
+Installed preview.2 acceptance passed in Paratext 9.5.110.1 using two newly added synthetic NSTest notes. Apply saved exactly the expected single body-text replacement, recorded Applied locally, resolved the original note via the public API, verified IsResolved, and advanced. Reject saved its reason locally, resolved its original note, verified IsResolved, and advanced without changing the on-disk USFM. The rejection comment was absent from project note contents. Persisted local records reported Resolution=Resolved; the host retained each original QA comment and appended its native resolution status record. The installed binary SHA-256 matched the package.
+
+All 85 IRVTam Scripture/notes files matched the immediate pre-update baseline; no production decision or resolution was performed. Full export/Send-Receive testing remains pending. Earlier real-host queue/writer results below remain historical evidence and did not resolve notes.
 
 ## 0.2.0-preview.1 queue validation
 
