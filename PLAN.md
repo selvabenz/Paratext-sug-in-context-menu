@@ -6,6 +6,8 @@ For Paratext 9.5.110.1, surface existing project-note suggestions at the passage
 
 Confirmed: Windows Paratext version 9.5.110.1.
 
+The user's IRVTam notes have now been inspected locally. [CATEGORY_HANDLING.md](CATEGORY_HANDLING.md) records the 16 observed QA categories, native project tags, and category/region/proposal rules. These rules refine the generic workflow below: only verified literal corrections apply directly; alternatives, source decisions, and structural operations use their appropriate review or edit flow.
+
 The supplied screenshot shows the Scripture editor's right-click menu alongside a QA project note containing `Original:`, `Suggested:`, `Reason:`, confidence, and review information. Use the `Suggested:` field as the correction preview and retain the other fields for review. The user subsequently confirmed that clicking a correction must replace the exact word, sentence, or verse in the project and affect the USFM used by exports and normal Send/Receive. The stored rich-text structure still needs verification.
 
 Working assumption: unresolved notes are shown by default. A note can contain general discussion rather than a replacement instruction, so the plugin must preserve the distinction between a suggestion and an actionable text replacement.
@@ -67,6 +69,8 @@ Before choosing the framework or producing an installer:
 2. On click, revalidate the current project and request the smallest supported Scripture write lock. Re-read the affected Scripture under that lock and revalidate the source note before changing anything. Reject a missing lock, read-only project, stale note, or changed Original.
 3. Map the rendered anchored span to Scripture text tokens. An exact selection/anchor must distinguish repeated words; a unique match within the verified anchored verse may be used only when unambiguous. Never silently choose the first occurrence or search other verses for a missing match.
 4. Modify only the mapped text, preserving chapter/verse numbers, paragraph and character markers, note/cross-reference content, milestones, and attributes. A full-verse suggestion replaces its Scripture content, not the verse marker or unrelated embedded notes. If a span crosses markup that cannot be mapped safely, stop with an explanation rather than flattening its structure.
+
+   This preservation rule describes ordinary text replacements. A note explicitly proposing a USFM marker or footnote/cross-reference change requires the separate validated structural operation described in CATEGORY_HANDLING.md; it must not be applied through the ordinary text writer.
 5. Save through the verified supported API, preferably the token-based pathway when it preserves the required structure. A chapter-level write may be required even for a word change; reconstruct it from the freshly read chapter and retain all unaffected tokens. Never patch the on-disk project files behind Paratext.
 6. Send the required change notifications, release the lock in all outcomes, and re-read the saved text before reporting Applied. Refresh the editor and cached suggestions. A repeated click must not apply the same edit again.
 7. Use the same project's normal export and Send/Receive workflow after the edit. The plugin does not automatically export or start synchronization. Verify an exported USFM sample and an authorized controlled synchronization round trip before claiming end-to-end behavior. Normal project access and merge/conflict handling still apply.

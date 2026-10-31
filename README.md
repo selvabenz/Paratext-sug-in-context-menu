@@ -24,6 +24,8 @@ Direct, dynamically populated submenu previews are the preferred outcome, subjec
 
 See [PLAN.md](PLAN.md) for the interaction design, feasibility checks, milestones, and acceptance criteria.
 
+The actual IRVTam notes have been inspected locally. See [CATEGORY_HANDLING.md](CATEGORY_HANDLING.md) for the 16 observed QA categories and distinct handling of literal corrections, alternatives, source-review decisions, introductions, footnotes, and USFM structure.
+
 ## Development references
 
 - [Official Paratext demo plugins](https://github.com/ubsicap/paratext_demo_plugins)
