@@ -1,0 +1,16 @@
+# Build outputs and IDE state
+bin/
+obj/
+.vs/
+*.user
+*.suo
+
+# Local data and credentials
+.env
+.env.*
+!.env.example
+local-data/
+private-notes/
+
+# Locally referenced Paratext binaries
+lib/paratext/
