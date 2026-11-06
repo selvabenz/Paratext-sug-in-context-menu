@@ -1,10 +1,11 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Windows.Forms;
 using System.Xml.Linq;
+using Paratext.PluginInterfaces;
 
 namespace ParatextNoteSuggestions
 {
@@ -21,6 +22,21 @@ namespace ParatextNoteSuggestions
         readonly HashSet<string> duplicateIds = new HashSet<string>();
         readonly HashSet<string> seen = new HashSet<string>();
         readonly Queue<int> books;
+        readonly ComboBox startBook = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 110 };
+        readonly Button startFromBook = Button("Start from book");
+        readonly Button previous = Button("Previous"), next = Button("Next"), filters = Button("Filters..."), recovery = Button("Recovery");
+        readonly ComboBox syncGroup = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 85 };
+        readonly Label scopeLabel = new Label { AutoSize = true }, navigationLabel = new Label { AutoSize = true };
+        readonly Timer navigationTimer = new Timer { Interval = 150 };
+        QueueScope scope;
+        int navigationChecks;
+        int firstBook;
+        sealed class BookChoice
+        {
+            public int Number;
+            public string Code;
+            public override string ToString() { return Code; }
+        }
         readonly Timer indexTimer = new Timer { Interval = 30 };
         readonly Timer draftTimer = new Timer { Interval = 600 };
         readonly Label heading = new Label(), status = new Label();
@@ -29,6 +45,7 @@ namespace ParatextNoteSuggestions
         readonly CheckBox reviewed = new CheckBox { Text = "I reviewed this exact correction", AutoSize = true };
         readonly CheckBox deletion = new CheckBox { Text = "Explicitly delete the original text", AutoSize = true };
         readonly Button apply = Button("Apply and next"), reject = Button("Reject and next"), manual = Button("Completed manually / no change"), retry = Button("Verified no edit; allow retry"), pause = Button("Pause"), later = Button("Leave for later"), back = Button("Return to queued passage");
+        readonly Button bulk = Button("Bulk resolve...");
         readonly Button resolve = Button("Retry note resolution");
         NoteCandidate current;
         int position = -1, completed;
@@ -41,36 +58,87 @@ namespace ParatextNoteSuggestions
             progress = new ReviewProgress(progressRoot ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ParatextNoteSuggestions", "Review"), owner.ProjectId);
             try { books = new Queue<int>(owner.QueueBooks()); session = new ReviewSession(progress.DirectoryPath, owner.ProjectId, owner.ProjectName, owner.Reviewer); }
             catch { progress.Dispose(); throw; }
+            scope = progress.LoadScope();
+            books.Clear(); foreach (int number in owner.QueueBooks().Where(scope.IncludesBook)) books.Enqueue(number);
             reportProjectDirectory = reportDirectory;
             string savedFolder = Path.Combine(progress.DirectoryPath, "report-folder.xml");
             if (reportProjectDirectory == null && File.Exists(savedFolder)) reportProjectDirectory = XElement.Load(savedFolder).Value;
             if (reportProjectDirectory == null || !ProjectReportDirectory.Matches(reportProjectDirectory, owner.ProjectId)) reportProjectDirectory = ProjectReportDirectory.Find(owner.ProjectName, owner.ProjectId);
             Text = "Note review queue - " + owner.ProjectName;
-            Font = new Font("Segoe UI", 10); AutoScaleMode = AutoScaleMode.Dpi;
+            Font = new Font("Segoe UI", 10); BackColor = Color.FromArgb(245, 247, 250); AutoScaleMode = AutoScaleMode.Dpi;
             var area = Screen.PrimaryScreen.WorkingArea;
             Size = new Size(Math.Min(760, area.Width - 30), Math.Min(900, area.Height - 35));
-            MinimumSize = new Size(450, 400); StartPosition = FormStartPosition.CenterScreen;
-            var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, Padding = new Padding(10) };
+            MinimumSize = new Size(450, 640); StartPosition = FormStartPosition.CenterScreen;
+            var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, Padding = new Padding(16) };
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); root.RowStyles.Add(new RowStyle(SizeType.Absolute, 65));
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 105)); root.RowStyles.Add(new RowStyle(SizeType.Absolute, 75));
+            heading.Font = new Font("Segoe UI Semibold", 11); heading.ForeColor = Color.FromArgb(30, 49, 70);
             heading.AutoSize = true; heading.MaximumSize = new Size(690, 0); root.Controls.Add(heading);
+            var top = new TableLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 5 };
+            top.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            var bookPicker = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill };
+            bookPicker.Controls.Add(new Label { Text = "Review starting at", AutoSize = true, Padding = new Padding(0, 6, 0, 0) });
+            bookPicker.Controls.Add(startBook); bookPicker.Controls.Add(startFromBook);
+            top.Controls.Add(bookPicker);
+            var scopePicker = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill }; scopePicker.Controls.Add(filters); scopePicker.Controls.Add(recovery); scopePicker.Controls.Add(bulk);
+            scopePicker.Controls.Add(new Label { Text = "Scroll group", AutoSize = true, Padding = new Padding(0, 6, 0, 0) }); scopePicker.Controls.Add(syncGroup);
+            syncGroup.Items.AddRange(Enum.GetValues(typeof(SyncReferenceGroup)).Cast<object>().ToArray()); syncGroup.SelectedItem = owner.NavigationGroup;
+            syncGroup.SelectedIndexChanged += delegate { owner.NavigationGroup = (SyncReferenceGroup)syncGroup.SelectedItem; };
+            top.Controls.Add(scopePicker); top.Controls.Add(scopeLabel); top.Controls.Add(navigationLabel);
+            root.Controls.Remove(heading); top.Controls.Add(heading); root.Controls.Add(top, 0, 0);
+            firstBook = progress.StartBook();
+            foreach (int number in owner.QueueBooks()) startBook.Items.Add(new BookChoice { Number = number, Code = owner.QueueBookCode(number) });
+            if (startBook.Items.Count > 0) startBook.SelectedIndex = Math.Max(0, startBook.Items.Cast<BookChoice>().ToList().FindIndex(b => b.Number == firstBook));
+            startFromBook.Click += delegate { Guard(StartFromBook); };
+            filters.Click += delegate { Guard(delegate { using (var dialog = new QueueScopeDialog(owner, scope)) if (dialog.ShowDialog(this) == DialogResult.OK) ChangeScope(dialog.Selection()); }); };
+            recovery.Click += delegate { Guard(delegate { ChangeScope(new QueueScope { RecoveryOnly = true, Status = NoteStatusFilter.All }); }); };
+            bulk.Click += delegate { Guard(BulkResolve); };
+            previous.Click += delegate { Guard(delegate { Browse(-1); }); }; next.Click += delegate { Guard(delegate { Browse(1); }); };
             var fields = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, AutoScroll = true, Padding = new Padding(0, 8, 15, 0) };
+            fields.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             source.ReadOnly = true; source.Dock = DockStyle.Fill;
             Add(fields, "Target region", region); region.Items.AddRange(Enum.GetValues(typeof(ContentRegion)).Cast<object>().ToArray());
-            original.Height = replacement.Height = 48; comment.Height = 48;
+            original.Height = replacement.Height = 65; comment.Height = 65;
             Add(fields, "Exact original", original); Add(fields, "Chosen literal replacement", replacement);
-            Add(fields, "Decision comment - choose a phrase or type/edit below", commentPreset);
+            Add(fields, "Decision comment", commentPreset);
             commentPreset.Items.Add("Choose a reusable decision phrase..."); commentPreset.Items.AddRange(CommentPresets.Values); commentPreset.SelectedIndex = 0;
             fields.Controls.Add(comment);
             fields.Controls.Add(deletion); fields.Controls.Add(reviewed);
+            fields.Controls.Add(manual);
             var tabs = new TabControl { Dock = DockStyle.Fill };
-            var correctionTab = new TabPage("Correction and decision"); correctionTab.Controls.Add(fields);
-            var sourceTab = new TabPage("Full note and discussion"); sourceTab.Controls.Add(source);
+            var correctionTab = new TabPage("Review") { BackColor = Color.White, Padding = new Padding(10) }; correctionTab.Controls.Add(fields);
+            var sourceTab = new TabPage("Source discussion"); sourceTab.Controls.Add(source);
             tabs.TabPages.Add(correctionTab); tabs.TabPages.Add(sourceTab); root.Controls.Add(tabs);
-            var actions = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = true };
-            foreach (var b in new[] { apply, reject, manual, retry, resolve, later, back, pause }) actions.Controls.Add(b);
-            var export = Button("Export decisions..."); actions.Controls.Add(export); actions.Controls.Add(viewReport); actions.Controls.Add(reportFolder); root.Controls.Add(actions);
-            status.Dock = DockStyle.Fill; root.Controls.Add(status); Controls.Add(root);
+            // Keep the review header compact; infrequent navigation settings live with tools.
+            scopePicker.Controls.Clear(); scopePicker.Controls.Add(filters); scopePicker.Controls.Add(bulk); scopePicker.Controls.Add(recovery);
+            top.Controls.Clear(); top.RowCount = 3;
+            top.Controls.Add(heading, 0, 0); top.Controls.Add(scopeLabel, 0, 1); top.Controls.Add(scopePicker, 0, 2);
+            var tools = new FlowLayoutPanel { AutoScroll = true, Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false };
+            tools.Controls.Add(new Label { Text = "Navigation settings", AutoSize = true, Font = new Font("Segoe UI Semibold", 11) });
+            tools.Controls.Add(bookPicker);
+            var groupPicker = new FlowLayoutPanel { AutoSize = true };
+            groupPicker.Controls.Add(new Label { Text = "Scroll group", AutoSize = true, Padding = new Padding(0, 6, 0, 0) }); groupPicker.Controls.Add(syncGroup);
+            tools.Controls.Add(groupPicker); tools.Controls.Add(navigationLabel);
+            foreach (var b in new[] { retry, resolve, later, viewReport, reportFolder }) tools.Controls.Add(b);
+            var export = Button("Export decisions..."); tools.Controls.Add(export);
+            var toolsTab = new TabPage("Tools"); toolsTab.Controls.Add(tools); tabs.TabPages.Add(toolsTab);
+            var actions = new FlowLayoutPanel { AutoScroll = true, Dock = DockStyle.Fill, WrapContents = true };
+            foreach (var b in new[] { previous, next, back, apply, reject, pause }) actions.Controls.Add(b);
+            root.Controls.Add(actions);
+            var statusArea = new Panel { Dock = DockStyle.Fill, AutoScroll = true }; status.AutoSize = true; statusArea.Controls.Add(status); root.Controls.Add(statusArea); Controls.Add(root);
+            apply.BackColor = Color.FromArgb(27, 97, 150); apply.ForeColor = Color.White; apply.FlatAppearance.BorderSize = 0;
+            Action reflow = delegate {
+                if (WindowState == FormWindowState.Minimized || root.ClientSize.Width < 300) return;
+                int width = root.ClientSize.Width - 30;
+                bookPicker.MaximumSize = scopePicker.MaximumSize = new Size(width, 0);
+                heading.MaximumSize = scopeLabel.MaximumSize = navigationLabel.MaximumSize = status.MaximumSize = new Size(width, 0);
+                foreach (Control control in fields.Controls) {
+                    control.Margin = new Padding(0, 3, 0, 3);
+                    if (control is Label || control is CheckBox || control is Button) control.MaximumSize = new Size(Math.Max(180, fields.ClientSize.Width - 25), 0);
+                }
+            };
+            fields.SizeChanged += delegate { reflow(); }; root.SizeChanged += delegate { reflow(); };
+            UpdateScopeLabel(); RestoreLayout();
             status.Text = "Indexing unresolved AI-QA notes, one book at a time. Pause or close to stop. No Scripture changes occur during indexing.";
             heading.Text = owner.ProjectName + " - preparing review queue";
             apply.Click += delegate { Decide("Applied"); }; reject.Click += delegate { Decide("Rejected"); };
@@ -91,7 +159,7 @@ namespace ParatextNoteSuggestions
                 });
             };
             later.Click += delegate { Guard(delegate { SaveDraft(); Next(); }); };
-            back.Click += delegate { Guard(delegate { if (current != null) owner.Navigate(current); }); };
+            back.Click += delegate { Guard(NavigateCurrent); };
             export.Click += delegate { Guard(delegate { using (var dialog = new SaveFileDialog { Filter = "CSV review log|*.csv", FileName = "Note-review-decisions.csv" }) if (dialog.ShowDialog(this) == DialogResult.OK) progress.Export(dialog.FileName); }); };
             commentPreset.SelectedIndexChanged += delegate { if (!populating && commentPreset.SelectedIndex > 0) comment.Text = (string)commentPreset.SelectedItem; };
             reportFolder.Click += delegate { Guard(ChooseReportFolder); };
@@ -110,10 +178,11 @@ namespace ParatextNoteSuggestions
             deletion.CheckedChanged += delegate { if (!populating) { reviewed.Checked = false; draftTimer.Start(); } replacement.Enabled = !deletion.Checked; EnableActions(); };
             draftTimer.Tick += delegate { draftTimer.Stop(); Guard(SaveDraft); };
             indexTimer.Tick += delegate { Guard(IndexBook); };
-            Shown += delegate { indexTimer.Start(); };
+            navigationTimer.Tick += delegate { Guard(CheckNavigation); };
+            Shown += delegate { if (indexing && !paused) indexTimer.Start(); };
             FormClosing += delegate(object sender, FormClosingEventArgs e) {
                 if (busy) { e.Cancel = true; return; }
-                try { SaveDraft(); GenerateReports("Closed", true); } catch (Exception ex) { e.Cancel = true; Fail(ex); }
+                try { SaveDraft(); SaveLayout(); GenerateReports("Closed", true); } catch (Exception ex) { e.Cancel = true; Fail(ex); }
             };
             EnableActions();
         }
@@ -121,16 +190,65 @@ namespace ParatextNoteSuggestions
         {
             if (disposing && !resourcesDisposed)
             {
-                resourcesDisposed = true; indexTimer.Dispose(); draftTimer.Dispose();
+                resourcesDisposed = true; indexTimer.Dispose(); draftTimer.Dispose(); navigationTimer.Dispose();
                 if (progress != null) progress.Dispose();
             }
             base.Dispose(disposing);
         }
         static TextBox Box(int height) { return new TextBox { Multiline = true, ScrollBars = ScrollBars.Vertical, Height = height, Dock = DockStyle.Top }; }
-        static Button Button(string text) { return new Button { Text = text, AutoSize = true }; }
+        static Button Button(string text) { var button = new Button { Text = text, AutoSize = true, FlatStyle = FlatStyle.Flat, BackColor = Color.White, Padding = new Padding(8, 4, 8, 4), Margin = new Padding(3, 3, 6, 3), Cursor = Cursors.Hand }; button.FlatAppearance.BorderColor = Color.FromArgb(200, 208, 217); return button; }
         static void Add(TableLayoutPanel panel, string label, Control control)
-        { panel.Controls.Add(new Label { Text = label, AutoSize = true, Padding = new Padding(0, 7, 0, 0) }); panel.Controls.Add(control); }
+        { panel.Controls.Add(new Label { Text = label, AutoSize = true, Font = new Font("Segoe UI Semibold", 10), ForeColor = Color.FromArgb(55, 70, 85), Padding = new Padding(0, 10, 0, 2) }); panel.Controls.Add(control); }
         void Guard(Action action) { try { action(); } catch (Exception ex) { Fail(ex); } }
+        void UpdateScopeLabel()
+        {
+            scopeLabel.Text = "Scope: " + scope.Describe(owner.QueueBookCode);
+            session.SetScope(scopeLabel.Text, items.Count, completed);
+        }
+        void ChangeScope(QueueScope selection)
+        {
+            if (busy) return;
+            SaveDraft(); progress.SaveScope(selection);
+            indexTimer.Stop(); navigationTimer.Stop(); draftTimer.Stop(); scope = selection;
+            items.Clear(); duplicateIds.Clear(); seen.Clear(); books.Clear(); current = null; position = -1; completed = 0; recoveryNotice = "";
+            foreach (int number in owner.QueueBooks().Where(scope.IncludesBook)) books.Enqueue(number);
+            paused = false; pause.Text = "Pause"; indexing = true; UpdateScopeLabel();
+            heading.Text = "Indexing selected scope, one book at a time...";
+            source.Clear(); original.Clear(); replacement.Clear(); comment.Clear(); navigationLabel.Text = "";
+            EnableActions(); indexTimer.Start();
+        }
+        void SaveLayout()
+        {
+            var bounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
+            ReviewProgress.AtomicWrite(Path.Combine(progress.DirectoryPath, "layout.xml"), new XElement("layout", new XAttribute("x", bounds.X), new XAttribute("y", bounds.Y),
+                new XAttribute("width", bounds.Width), new XAttribute("height", bounds.Height), new XAttribute("maximized", WindowState == FormWindowState.Maximized), new XAttribute("group", owner.NavigationGroup)));
+        }
+        void RestoreLayout()
+        {
+            string path = Path.Combine(progress.DirectoryPath, "layout.xml"); if (!File.Exists(path)) return;
+            var e = XElement.Load(path); var saved = new Rectangle((int)e.Attribute("x"), (int)e.Attribute("y"), (int)e.Attribute("width"), (int)e.Attribute("height"));
+            var area = Screen.FromRectangle(saved).WorkingArea;
+            int width = Math.Min(area.Width, Math.Max(MinimumSize.Width, saved.Width)), height = Math.Min(area.Height, Math.Max(MinimumSize.Height, saved.Height));
+            StartPosition = FormStartPosition.Manual; Bounds = new Rectangle(Math.Max(area.Left, Math.Min(saved.X, area.Right - width)), Math.Max(area.Top, Math.Min(saved.Y, area.Bottom - height)), width, height);
+            SyncReferenceGroup group; if (Enum.TryParse((string)e.Attribute("group"), out group) && Enum.IsDefined(typeof(SyncReferenceGroup), group)) syncGroup.SelectedItem = group;
+            if ((bool?)e.Attribute("maximized") == true) WindowState = FormWindowState.Maximized;
+        }
+        void NavigateCurrent()
+        {
+            navigationTimer.Stop(); if (current == null) return;
+            navigationLabel.Text = "Opening " + current.DisplayReference + " in " + owner.ProjectName + ". Verse navigation; anchor: " + NoteParser.Preview(current.AnchorText ?? "", 60);
+            owner.Navigate(current); navigationChecks = 0; navigationTimer.Start();
+        }
+        void CheckNavigation()
+        {
+            if (current == null) { navigationTimer.Stop(); return; }
+            bool visible = owner.NavigationVisible(current);
+            if (visible || ++navigationChecks >= 12)
+            {
+                navigationTimer.Stop(); navigationLabel.Text = (visible ? "Project window reference confirmed: " : "Navigation requested; window reference not confirmed: ") + current.DisplayReference +
+                    ". Verse-only; anchored text: " + NoteParser.Preview(current.AnchorText ?? "", 60) + ". Scroll group: " + owner.NavigationGroup + ".";
+            }
+        }
         void Fail(Exception ex)
         {
             indexTimer.Stop(); draftTimer.Stop(); paused = true; pause.Text = "Resume"; owner.ReportFailure(ex);
@@ -167,9 +285,10 @@ namespace ParatextNoteSuggestions
                 int book = books.Peek();
                 foreach (var c in owner.ReadQueueBook(book, true))
                 {
-                    if (c.Unreadable) session.AddWarning(c.DisplayReference + " - unreadable note discussion (" + (c.IsResolved ? "already resolved" : "unresolved; handle manually") + "). " + c.NoteText);
                     var saved = progress.Get(c.StableId);
-                    if (c.IsResolved && (saved == null || !saved.Completed || String.IsNullOrEmpty(saved.Resolution))) continue;
+                    bool outstanding = saved != null && (saved.ResolutionPending || saved.Outcome == "Pending apply");
+                    if (c.Unreadable) session.AddWarning(c.DisplayReference + " - unreadable note discussion in an indexed book (" + (c.IsResolved ? "already resolved; may be outside status filter" : "unresolved; handle manually") + "). " + c.NoteText);
+                    if (scope.RecoveryOnly ? !outstanding : (!scope.IncludesStatus(c.IsResolved) || !scope.IncludesCandidate(c))) continue;
                     if (!seen.Add(c.StableId)) duplicateIds.Add(c.StableId);
                     items.Add(c);
                 }
@@ -179,20 +298,45 @@ namespace ParatextNoteSuggestions
             }
             indexTimer.Stop(); indexing = false;
             int missing = progress.Outstanding().Count(r => !seen.Contains(r.Id));
-            if (missing > 0) recoveryNotice = "\r\n" + missing + " interrupted decision(s) have missing/changed sources. Export decisions and inspect Paratext history/notes manually.";
+            if (missing > 0) recoveryNotice = "\r\n" + missing + " interrupted decision(s) are outside this scope or have missing/changed sources. Use Recovery or export decisions and inspect Paratext history/notes.";
+            recovery.Text = "Recovery (" + progress.Outstanding().Count() + ")";
             if (session.WarningCount > 0) recoveryNotice += "\r\n" + session.WarningCount + " unreadable discussion(s); other notes continue. See the report for manual attention.";
-            items.Sort((a, b) => { int n = a.Book.CompareTo(b.Book); if (n == 0) n = a.Chapter.CompareTo(b.Chapter); if (n == 0) n = a.FirstVerse.CompareTo(b.FirstVerse); return n == 0 ? StringComparer.Ordinal.Compare(a.StableId, b.StableId) : n; });
+            SortItems();
             completed = items.Count(c => { var r = progress.Get(c.StableId); return r != null && r.Completed; });
-            var cursor = progress.Cursor();
-            if (cursor != null) { int found = items.FindIndex(c => c.StableId == cursor.Id); var saved = progress.Get(cursor.Id); if (found >= 0 && (saved == null || !saved.Completed || saved.ResolutionPending)) position = found - 1; }
-            Next();
+            UpdateScopeLabel();
+            var cursor = progress.Cursor(scope);
+            int resume = cursor == null ? -1 : items.FindIndex(c => c.StableId == cursor.Id);
+            var record = cursor == null ? null : progress.Get(cursor.Id);
+            if (resume >= 0 && (record == null || !record.Completed || record.ResolutionPending || scope.Status != NoteStatusFilter.Unresolved)) { position = resume; LoadCurrent(); }
+            else Next();
+        }
+        void SortItems()
+        {
+            items.Sort((a, b) => {
+                int n = (a.Book < firstBook ? 1 : 0).CompareTo(b.Book < firstBook ? 1 : 0);
+                if (n == 0) n = a.Book.CompareTo(b.Book);
+                if (n == 0) n = a.Chapter.CompareTo(b.Chapter);
+                if (n == 0) n = a.FirstVerse.CompareTo(b.FirstVerse);
+                return n == 0 ? StringComparer.Ordinal.Compare(a.StableId, b.StableId) : n;
+            });
+        }
+        void StartFromBook()
+        {
+            if (busy || indexing || startBook.SelectedItem == null) return;
+            var chosen = (BookChoice)startBook.SelectedItem;
+            if (!items.Any(c => c.Book == chosen.Number && (progress.Get(c.StableId) == null || !progress.Get(c.StableId).Completed || progress.Get(c.StableId).ResolutionPending)))
+            { status.Text = "No unfinished queued notes in " + chosen.Code + ". Choose another book."; return; }
+            SaveDraft();
+            progress.SaveStartBook(chosen.Number); firstBook = chosen.Number; SortItems();
+            paused = false; pause.Text = "Pause"; position = -1; Next();
         }
         void Next()
         {
             draftTimer.Stop(); current = null; blocked = false;
             while (++position < items.Count)
             {
-                var r = progress.Get(items[position].StableId); if (r != null && r.Completed && !r.ResolutionPending) continue;
+                var r = progress.Get(items[position].StableId);
+                if (scope.Status == NoteStatusFilter.Unresolved && !scope.RecoveryOnly && r != null && r.Completed && !r.ResolutionPending) continue;
                 current = items[position]; break;
             }
             if (current == null)
@@ -204,12 +348,25 @@ namespace ParatextNoteSuggestions
                 string report = GenerateReports("End of pass", true);
                 status.Text = "End of this pass. Resume to revisit deferred notes." + (report == null ? "" : " HTML report saved; use View latest report."); return;
             }
-            try { current = owner.ReloadQueueItem(current, ResolutionPending()); }
+            LoadCurrent();
+        }
+        void Browse(int direction)
+        {
+            if (busy || indexing || (direction != -1 && direction != 1)) return;
+            int target = position + direction;
+            if (current == null && direction == -1) target = items.Count - 1;
+            if (target < 0 || target >= items.Count) return;
+            SaveDraft(); position = target; paused = false; pause.Text = "Pause"; LoadCurrent();
+        }
+        void LoadCurrent()
+        {
+            navigationTimer.Stop(); draftTimer.Stop(); blocked = false; current = items[position];
+            try { current = owner.ReloadQueueItem(current, true); }
             catch (Exception ex) { blocked = true; status.Text = ex.Message; }
             if (duplicateIds.Contains(current.StableId)) blocked = true;
             if (current.Unreadable) blocked = true;
             var previous = progress.Get(current.StableId);
-            var draft = progress.Cursor();
+            var draft = progress.Cursor(scope);
             populating = true;
             source.Text = current.NoteText; original.Text = current.Proposal.Original; replacement.Text = current.Proposal.Suggested;
             comment.Text = ""; commentPreset.SelectedIndex = 0; region.SelectedItem = current.Proposal.Region; deletion.Checked = false; reviewed.Checked = false;
@@ -223,47 +380,55 @@ namespace ParatextNoteSuggestions
             populating = false;
             try { loadedContext = owner.CapturePassage(current, (ContentRegion)region.SelectedItem); } catch { loadedContext = ""; }
             if (restore != null && restore.BeforeContext.Length > 0) loadedContext = restore.BeforeContext;
-            heading.Text = owner.ProjectName + " | " + current.DisplayReference + " | " + current.Proposal.Pass + " | " + current.Proposal.Category + "\r\n" + completed + " / " + items.Count + " reviewed - " + current.Proposal.Route + recoveryNotice;
-            if (!blocked) status.Text = ResolutionPending() ? "Decision saved locally. Retry note resolution to finish; the Scripture correction will not be repeated." : Pending() ? "An earlier apply did not finish recording. Inspect Paratext history and the passage, then confirm completed manually or confirm no edit before retrying." : "Waiting for Apply or Reject. Browse references freely. Comments/progress stay local; the note resolves when all its proposals have decisions.";
+            heading.Text = owner.ProjectName + " | " + current.DisplayReference + " | " + current.Proposal.Pass + " | " + current.Proposal.Category + "\r\nItem " + (position + 1) + " / " + items.Count + " | " + completed + " locally reviewed | Paratext: " + (current.IsResolved ? "Resolved" : "Unresolved") + " | Decision: " + (previous == null ? "None" : previous.Outcome) + recoveryNotice;
+            if (!blocked) status.Text = ResolutionPending() ? "Decision saved locally. Retry note resolution to finish; the Scripture correction will not be repeated." : Pending() ? "An earlier apply did not finish recording. Inspect Paratext history and the passage, then confirm completed manually or confirm no edit before retrying." : "Waiting for Apply or Reject. Browse references freely. Decision comments are saved in the Paratext discussion; the note resolves when all its proposals have decisions.";
             else status.Text = "Source changed, unavailable, or duplicate identity. Automatic Apply is blocked. Inspect in Paratext; leave for later or record a commented manual decision.";
             if (current.Unreadable) status.Text = "Paratext cannot read this discussion. Decisions are blocked for this note; inspect/fix it in Paratext or Leave for later. Other notes can continue.";
+            if (previous != null && previous.Completed) source.Text += "\r\n\r\nSAVED LOCAL DECISION: " + previous.Outcome + "\r\n" + previous.Comment + "\r\n" + previous.Evidence + "\r\nBefore:\r\n" + previous.BeforeContext + "\r\nAfter:\r\n" + previous.AfterContext;
+            if (current.IsResolved && !ResolutionPending()) status.Text = "Paratext resolved note - inspection only. Navigation never repeats its decision or Scripture edit.";
             SaveDraft(); EnableActions();
-            owner.Navigate(current);
-            Activate();
+            NavigateCurrent();
         }
         bool Pending() { var r = current == null ? null : progress.Get(current.StableId); return r != null && r.Outcome == "Pending apply"; }
         bool ResolutionPending() { var r = current == null ? null : progress.Get(current.StableId); return r != null && r.ResolutionPending; }
         ReviewRecord Record(string outcome)
         {
             return new ReviewRecord { Id = current.StableId, Outcome = outcome, Reference = current.DisplayReference, Category = current.Proposal.Category,
-                Original = original.Text, Replacement = deletion.Checked ? "" : replacement.Text, Comment = comment.Text, Discussion = current.DiscussionKey, BeforeContext = loadedContext, Region = region.SelectedItem == null ? "" : region.SelectedItem.ToString() };
+                Original = original.Text, Replacement = deletion.Checked ? "" : replacement.Text, Comment = comment.Text, Discussion = current.DiscussionKey, BeforeContext = loadedContext, Region = region.SelectedItem == null ? "" : region.SelectedItem.ToString(), QueueScope = scope.Describe(owner.QueueBookCode) };
         }
         void SaveDraft()
         {
-            if (current == null || populating) return;
+            if (current == null || populating || indexing) return;
             var draft = Record(deletion.Checked ? "Draft deletion" : "Draft");
             var prior = progress.Get(current.StableId);
             // Keep unresolved write intent and completed decisions intact.
             if (prior == null || (!prior.Completed && prior.Outcome != "Pending apply")) progress.Save(draft);
-            progress.SaveCursor(draft);
+            progress.SaveCursor(prior != null && prior.Completed ? prior : draft, scope);
         }
         void EnableActions()
         {
             bool ready = current != null && !paused && !busy && !indexing;
+            bool editable = ready && !current.IsResolved;
             bool pending = current != null && Pending();
             bool decisionSaved = current != null && (progress.Get(current.StableId) ?? new ReviewRecord()).Completed;
             bool duplicate = current != null && duplicateIds.Contains(current.StableId);
-            apply.Enabled = ready && !decisionSaved && !pending && !blocked && reviewed.Checked && current.Proposal.Route != ProposalRoute.NoChange && (replacement.Text.Length > 0 || deletion.Checked);
-            reject.Enabled = ready && !current.Unreadable && !decisionSaved && !pending && !duplicate && comment.Text.Trim().Length > 0;
-            manual.Enabled = ready && !current.Unreadable && !decisionSaved && !duplicate && reviewed.Checked && comment.Text.Trim().Length > 0;
+            apply.Enabled = editable && !decisionSaved && !pending && !blocked && reviewed.Checked && current.Proposal.Route != ProposalRoute.NoChange && (replacement.Text.Length > 0 || deletion.Checked);
+            reject.Enabled = editable && !blocked && !current.Unreadable && !decisionSaved && !pending && !duplicate && comment.Text.Trim().Length > 0;
+            manual.Enabled = editable && !blocked && !current.Unreadable && !decisionSaved && !duplicate && reviewed.Checked && comment.Text.Trim().Length > 0;
             retry.Visible = pending; retry.Enabled = ready && pending && comment.Text.Trim().Length > 0;
             resolve.Visible = ResolutionPending(); resolve.Enabled = ready && ResolutionPending() && !duplicate;
             later.Enabled = ready; back.Enabled = current != null && !busy;
             pause.Enabled = !busy;
+            startFromBook.Enabled = !busy && !indexing && startBook.SelectedItem != null;
+            startBook.Enabled = !busy;
+            previous.Enabled = !busy && !indexing && items.Count > 0 && (current == null || position > 0);
+            next.Enabled = !busy && !indexing && position >= 0 && position < items.Count - 1;
+            bulk.Enabled = !busy && !indexing && !paused && !scope.RecoveryOnly && items.Any(c => !c.IsResolved && !c.Unreadable && !duplicateIds.Contains(c.StableId) && (progress.Get(c.StableId) == null || (!progress.Get(c.StableId).Completed && progress.Get(c.StableId).Outcome != "Pending apply")));
+            filters.Enabled = recovery.Enabled = syncGroup.Enabled = !busy;
             viewReport.Enabled = reportFolder.Enabled = !busy;
-            commentPreset.Enabled = !busy && !decisionSaved && current != null;
-            original.Enabled = replacement.Enabled = comment.Enabled = region.Enabled = reviewed.Enabled = deletion.Enabled = !busy && !decisionSaved;
-            replacement.Enabled = !busy && !decisionSaved && !deletion.Checked;
+            commentPreset.Enabled = editable && !decisionSaved;
+            original.Enabled = replacement.Enabled = comment.Enabled = region.Enabled = reviewed.Enabled = deletion.Enabled = editable && !decisionSaved;
+            replacement.Enabled = editable && !decisionSaved && !deletion.Checked;
         }
         void Decide(string outcome)
         {
@@ -306,7 +471,8 @@ namespace ParatextNoteSuggestions
                     }
                     record.Resolution = "Pending";
                     var previousAttempt = progress.Get(current.StableId);
-                    progress.Save(record); session.Track(record);
+                    Action saveDecision = delegate { progress.Save(record); session.Track(record); };
+                    if (outcome == "Applied") saveDecision(); else owner.ValidateQueueDecision(current, saveDecision);
                     if (previousAttempt != null && previousAttempt.Outcome == "Pending apply" && previousAttempt.AuditId.Length > 0)
                     {
                         var reconciled = ReviewRecord.FromXml(previousAttempt.ToXml()); reconciled.Outcome = "Reconciled manually";
@@ -321,12 +487,16 @@ namespace ParatextNoteSuggestions
         }
         void FinishResolution()
         {
-            var record = progress.Get(current.StableId);
+            FinishRecord(current); Next();
+        }
+        void FinishRecord(NoteCandidate candidate)
+        {
+            var record = progress.Get(candidate.StableId);
             if (record == null || !record.ResolutionPending) throw new InvalidOperationException("A saved decision is required before resolving the note.");
             List<string> ids;
-            bool resolved = owner.ResolveReviewedThread(current, record.Discussion, delegate(string id) { var r = progress.Get(id); return r != null && r.Completed; }, out ids);
+            bool resolved = owner.ResolveReviewedThread(candidate, record.Discussion, delegate(string id) { var r = progress.Get(id); return r != null && r.Completed; }, out ids, record, progress.Get);
             if (resolved)
-                foreach (string id in ids.Where(id => id != current.StableId))
+                foreach (string id in ids.Where(id => id != candidate.StableId))
                 {
                     var peer = progress.Get(id); if (peer == null || !peer.Completed) continue;
                     var updated = ReviewRecord.FromXml(peer.ToXml()); updated.Resolution = "Resolved"; progress.Save(updated);
@@ -339,7 +509,56 @@ namespace ParatextNoteSuggestions
             }
             finished.Resolution = resolved ? "Resolved" : "Waiting for remaining proposals";
             finished.Actor = owner.Reviewer; finished.ActionUtc = DateTime.UtcNow.ToString("O");
-            progress.Save(finished); session.Track(finished); Next();
+            progress.Save(finished); session.Track(finished);
+        }
+        void BulkResolve()
+        {
+            SaveDraft();
+            var candidates = items.Where(c => !c.IsResolved && !c.Unreadable && !duplicateIds.Contains(c.StableId) &&
+                (progress.Get(c.StableId) == null || (!progress.Get(c.StableId).Completed && progress.Get(c.StableId).Outcome != "Pending apply"))).ToList();
+            using (var dialog = new BulkResolveDialog(candidates))
+            {
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                RunBulk(dialog.SelectedItems, dialog.DecisionComment);
+            }
+        }
+        void RunBulk(List<NoteCandidate> selectedItems, string decisionComment)
+        {
+            if (busy || indexing || String.IsNullOrWhiteSpace(decisionComment)) return;
+            busy = true; EnableActions(); int success = 0; var failures = new List<string>();
+            try
+            {
+                int processed = 0;
+                foreach (var item in selectedItems)
+                {
+                    status.Text = "Saving bulk decision " + (++processed) + " / " + selectedItems.Count + " - " + item.DisplayReference; status.Refresh();
+                    try
+                    {
+                        if (!items.Contains(item) || duplicateIds.Contains(item.StableId)) throw new InvalidOperationException("Target is outside the queue or ambiguous.");
+                        var prior = progress.Get(item.StableId);
+                        if (prior != null && (prior.Completed || prior.Outcome == "Pending apply")) throw new InvalidOperationException("A decision or interrupted apply already exists; use Recovery.");
+                        var fresh = owner.ReloadQueueItem(item, true);
+                        if (fresh.IsResolved || fresh.Unreadable || fresh.Key != item.Key) throw new InvalidOperationException("Source changed; refresh and review it again.");
+                        var record = new ReviewRecord { Id = item.StableId, Outcome = "Completed manually", Reference = item.DisplayReference,
+                            Category = item.Proposal.Category, Original = item.Proposal.Original, Replacement = item.Proposal.Suggested,
+                            Comment = decisionComment.Trim(), Region = item.Proposal.Region.ToString(), Discussion = item.DiscussionKey,
+                            SessionId = session.Id, AuditId = Guid.NewGuid().ToString("N"), Reviewer = owner.Reviewer, Actor = owner.Reviewer,
+                            DecisionUtc = DateTime.UtcNow.ToString("O"), ActionUtc = DateTime.UtcNow.ToString("O"), Resolution = "Pending",
+                            QueueScope = scope.Describe(owner.QueueBookCode), SourceNote = item.NoteText,
+                            Evidence = "Bulk review acknowledged by reviewer. No Scripture edit by the queue; no claim that a proposed correction was applied." };
+                        record.BeforeContext = record.AfterContext = owner.CapturePassage(item, item.Proposal.Region);
+                        record.ContextScope = "Passage observed at bulk decision time (USFM)";
+                        owner.ValidateQueueDecision(item, delegate { progress.Save(record); session.Track(record); });
+                        completed++; FinishRecord(item); success++;
+                    }
+                    catch (Exception ex) { failures.Add(item.DisplayReference + ": " + ex.Message); }
+                }
+                recovery.Text = "Recovery (" + progress.Outstanding().Count() + ")";
+                UpdateScopeLabel(); position = -1; Next();
+                status.Text = success + " decisions saved in Paratext notes. " + failures.Count + " failed; " + progress.Outstanding().Count() + " pending recovery. No Scripture edits.";
+                if (failures.Count > 0) { session.AddWarning(String.Join("\r\n", failures)); status.Text += " Failure details are in the session report."; }
+            }
+            finally { busy = false; EnableActions(); }
         }
         void Retry()
         {

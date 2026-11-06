@@ -1,4 +1,4 @@
-# Developer handoff
+﻿# Developer handoff
 
 ## Release and status
 
@@ -9,6 +9,8 @@ The preceding 0.1.0-preview.2 plugin was installed and loaded in the user's real
 The new queue has also loaded 16,270 unresolved QA proposals in the real host, navigated to the first passage and paused without a production decision. All 85 Scripture/note hashes matched the immediate pre-queue baseline. The final installed build passed disposable-project Apply-and-next with an exact on-disk USFM comparison, commented Reject-and-next with no USFM change, Footnote region retention, and modeless reference browsing at a different verse. 125 synthetic checks pass. The installed 0.3.0 update also passed real-host preset selection and cumulative HTML reporting in NSTest, including authenticated reviewer and full snapshots. IRVTam scanning completed despite 215 legacy unreadable discussions, which are reported for manual attention. The queue is paused; no production decisions were performed and all 85 files matched the immediate pre-install baseline.
 
 ## Build
+
+The 2026-11-02 working build adds scoped book/status indexing, Previous/Next/history, scroll-group navigation and responsive layout persistence. See [ISSUES_1_4.md](ISSUES_1_4.md) for API evidence, safeguards, 138 synthetic checks, NSTest host observations and the remaining host acceptance requirements. Issue #3 stays open because this public API has no custom docking registration.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1
@@ -111,3 +113,15 @@ See VALIDATION.md for evidence and explicit pending real-host checks. Before sta
 6. Consider public API evolution or a host-supported annotation menu if direct integration improves. Do not misuse the localization event as a live Scripture menu hook.
 
 The older PLAN.md and CATEGORY_HANDLING.md retain the user's full target requirements. This release's implementation status and limits are defined here and in INSTALL.md/RELEASE_NOTES.md. The ignored earlier HTML mockup is historical; it does not represent the compiled plugin.
+
+
+Decision comments and bulk review development changes (6 November 2026): see [DECISION_COMMENTS_PLAN.md](DECISION_COMMENTS_PLAN.md). The queue now posts verified attributed decision replies before resolution, supports category/discussion filters and selectable bulk manual/no-change decisions, and uses a compact review layout. Bulk mode never writes Scripture. New changes passed 144 synthetic checks; host reply/Send-Receive acceptance is pending. Tracked in [GitHub issue #5](https://github.com/selvabenz/Paratext-sug-in-context-menu/issues/5). The connector denied issue writes, but the existing CLI login was valid outside the network sandbox and successfully created the issue.
+
+
+## Installed decision-comment build — real-host acceptance, 6 November 2026
+
+Installed SHA-256: `D24717ABC33FF5A764532B1D9BA65C9D9F7E76F4A65FD89B2BC47C9F3BB15AFF`. The checked installer ran with Paratext closed, refreshed the official plugin cache, and preserved the previous binary in ignored local artifacts. Installed and built hashes match. All 144 synthetic checks passed before installation.
+
+In Paratext 9.5.110.1, the queue filtered three new NSTest proposals using a unique discussion search. Reject saved an attributed English/Tamil decision reply on the textual-basis thread and advanced. Bulk preview included exactly the remaining verse-alignment and USFM-marker proposals, initially unchecked, and required selection, shared comment and review acknowledgement. Submitting reported two decisions saved, zero failures and zero pending recovery. On-disk notes contain exactly one decision reply per test thread and a resolved terminal status. The full NSTest Scripture bytes are unchanged, and all 86 production Scripture/note files match the immediate pre-test baseline. A normal Paratext restart retained the saved filter and removed all three resolved fixtures from the unresolved scope. The session HTML report was generated in NSTest's Review Queue folder.
+
+Two monitors were present and the real floating window restored on the desktop at the current display settings. The full 100/150/200% DPI and monitor-transition matrix is not established. Send/Receive and second-reviewer visibility remain pending: NSTest is an unregistered local test project without a configured test synchronization partner. No production Send/Receive was initiated. Issue #5 remains open for these acceptance items.

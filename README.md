@@ -1,4 +1,4 @@
-# Paratext sug in context menu
+﻿# Paratext sug in context menu
 
 Show suggestions from existing Paratext project notes in the Scripture editor's right-click context menu.
 
@@ -18,7 +18,18 @@ Choose **Review note queue…** in the Scripture right-click or Tools menu. The 
 
 You can browse reference windows for as long as needed. **Return to queued passage** restores the queued target; browsing never retargets its write. Use **Pause**, **Resume**, **Leave for later**, or close the window. Reopening resumes saved progress and drafts. Reviewed items are skipped. An interrupted/unverified apply is held for explicit reconciliation before another attempt.
 
-Comments and decisions are stored locally on this Windows account and can be exported to CSV. They are not appended to source notes or synchronized by Send/Receive. After each new queue decision, the original note is resolved once every QA proposal in its thread has a saved decision. Paused/deferred items stay open. Resolution failures pause with a separate retry that never repeats the Scripture edit. Complex corrections can be performed in Paratext, then recorded with **Completed manually / no change** and a comment. Duplicate source identities require manual disambiguation before a queue decision can be recorded.
+To start in any book available in the project, select its Bible code in **Review starting at**, then click **Start from book** once indexing finishes. This opens the first unfinished note in that book, continues in Bible order, then wraps to earlier books. You can switch books while paused or reviewing; the current draft and saved decisions are preserved. Reopening resumes the saved note and book order. A book with no unfinished queued notes shows a message and leaves the current note open.
+
+Use **Filters...** to restrict review to one or several books before scanning, or choose all books. **Unresolved**, **Resolved** and **All** follow Paratext's source-note status, independently of your local decisions. Resolved notes are read-only. **Previous** and **Next** browse one item without deciding or wrapping; wording, region, deletion intent and comments survive navigation and scope changes. **Recovery** shows interrupted applies and pending note resolutions across books/statuses. Normal filtered scopes also warn about hidden recovery work. Scope does not reserve books or synchronize reviewers' local progress.
+
+**Scroll group** sends the queued reference to the chosen Paratext group (A–E); set the project window's group in Paratext itself. **None** requests project passage navigation without an explicit group broadcast. Navigation is verse-only; anchored text is identified in the queue because the public API has no editor-selection setter. Reports/recovery tools have a separate tab, and window size/position are remembered. Native docking/tab/auto-hide integration remains unavailable in the installed public API; see [issues #1–#4 implementation and validation](ISSUES_1_4.md).
+
+Completed decisions now append an attributed reply, including the decision comment, to the original Paratext note discussion. The plugin verifies the saved reply before resolving the note. Drafts and recovery records remain local to this Windows account and can be exported to CSV. Real-host reply persistence, bulk resolution and restart persistence passed in NSTest; Send/Receive acceptance remains pending. After each new queue decision, the original note is resolved once every QA proposal in its thread has a saved decision and a verified discussion reply. Paused/deferred items stay open. Resolution failures pause with a separate retry that never repeats the Scripture edit. Complex corrections can be performed in Paratext, then recorded with **Completed manually / no change** and a comment. Duplicate source identities require manual disambiguation before a queue decision can be recorded.
+
+
+**Filters...** also accepts a category and discussion-text search. Use `Textual-basis review`, a custom category, or searches such as `verse alignment` and `spacing` to narrow the queue. Filters and resume position persist locally. **Bulk resolve...** previews the filtered proposals and their full discussions. Select reviewed items, enter the shared decision comment, and confirm that no queue Scripture edit is needed. The plugin records manual/no-change decisions and posts a separate reply for each proposal. It makes no Scripture edits; perform any necessary corrections in Paratext first. Partial threads remain open. Failed replies stay available in Recovery, and failure details appear in the session report.
+
+The compact **Review**, **Source discussion** and **Tools** tabs separate decisions, source evidence, navigation settings and reporting. See [the implementation plan and acceptance status](DECISION_COMMENTS_PLAN.md). Tracked in [GitHub issue #5](https://github.com/selvabenz/Paratext-sug-in-context-menu/issues/5).
 
 ## Comment presets and session reports
 
@@ -54,6 +65,12 @@ Requires Windows with .NET Framework 4.8 and a local Paratext 9.5.110.1 installa
 See [PLAN.md](PLAN.md) for the interaction design, feasibility checks, milestones, and acceptance criteria.
 
 The actual IRVTam notes have been inspected locally. See [CATEGORY_HANDLING.md](CATEGORY_HANDLING.md) for the 16 observed QA categories and distinct handling of literal corrections, alternatives, source-review decisions, introductions, footnotes, and USFM structure.
+
+## License
+
+This plugin is licensed under the [MIT License](LICENSE). You may use, modify, and redistribute it free of charge, including commercially, provided you retain the copyright and license notice. The software is provided without warranty.
+
+The license covers this project's code and documentation. Paratext and its proprietary host assemblies remain subject to their own licenses and are not included in this distribution.
 
 ## Development references
 

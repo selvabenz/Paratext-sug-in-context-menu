@@ -1,4 +1,4 @@
-<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+﻿<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup>
     <Configuration Condition="'$(Configuration)' == ''">Release</Configuration>
     <OutputType>Library</OutputType>
@@ -28,6 +28,8 @@
     <Compile Include="ReviewForm.cs" />
     <Compile Include="ReviewProgress.cs" />
     <Compile Include="QueueForm.cs" />
+    <Compile Include="QueueScope.cs" />
+    <Compile Include="BulkResolveDialog.cs" />
     <Compile Include="ReviewReports.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

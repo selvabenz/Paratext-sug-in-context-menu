@@ -1,0 +1,38 @@
+# Review queue issues #1–#4
+
+Development build, 2026-11-02. Issues remain open until their outstanding host acceptance checks pass.
+
+## Implemented behavior
+
+- #1: navigation pins the source project and original verse reference. The scroll-group selector offers None and A–E, starts with the invoking window's group, and remembers the selection. `OpenTextWindowFor` opens the project passage; `SetReferenceForSyncGroup` updates only the chosen group. A short UI timer observes `AllOpenWindows` without repeating navigation, reports whether a project window reference was confirmed, and stops after 1.8 seconds. It never follows later reference browsing or retargets writes. The queue no longer calls `Activate()` immediately after requesting host navigation.
+- #2: Previous/Next move one indexed item, including locally reviewed items, without wrapping or making decisions. Both save per-source drafts. First/last controls disable at boundaries. Explicit decisions retain automatic forward advance; the default unresolved pass skips already completed local decisions during automatic advance. History displays saved decision evidence and is read-only. Changed, missing and duplicate sources remain blocked.
+- #3: long text fields scroll, correction fields reflow to available width, and navigation/Apply/Reject/Pause have a separate scrolling action area. Reports and recovery tools have their own tab. Window bounds, maximized state and scroll-group choice persist locally; restored bounds are clamped to a current monitor. No new native layout modes are claimed.
+- #4: Books / status selects all, one, multiple or no project books and Unresolved/Resolved/All. Selected books are applied before expensive indexing. Status uses `IProjectNote.IsResolved`, independently of local decision state. Resolved sources are inspection-only. Scope and a cursor per scope persist per Windows account/project. Recovery indexes all available books/statuses for outstanding applies/resolutions; normal scopes display an explicit notice for hidden or missing recovery sources. Drafts and decisions survive scope changes. Cancel in the scope dialog keeps the active scope; Pause/close stop indexing between books.
+
+Counts are snapshots of indexed proposals, not live Paratext Notes-tool row counts: a discussion can contain several QA proposals, and non-QA notes do not enter this queue. Unreadable-discussion warnings identify the status observed in an indexed book, including warnings outside the selected status. Refresh by applying Books / status again after other reviewers make changes. Each subsequent load re-reads its source. Apply checks source/permission under its Scripture lock; rejection and manual decisions revalidate status, discussion identity and permission under a notes lock before recording a decision.
+
+Reports identify the scope at stop and indexed/reviewed totals for that scope. Session decisions are cumulative across scope changes; each decision carries its own scope. Recovered manifests preserve their recorded scope/counts. Book filters do not reserve work, enforce reviewer ownership, synchronize comments/progress, or merge reviewers' local histories.
+
+## Verified public API limits
+
+Inspected every exported public type/member in the installed `CorePluginInterfaces.dll` and `PluginInterfaces.dll`, version 2.0.100.0, for Paratext 9.5.110.1. The audit is reproducible with `scripts/inspect-api.ps1 -AllPublic`; local output is in ignored `artifacts/public-api-audit.txt`.
+
+- `IParatextChildState.SyncReferenceGroup` is read-only. `IPluginHost.SetReferenceForSyncGroup(IVerseRef, SyncReferenceGroup)` updates a group's reference, but cannot assign a project window to a group. Set matching group membership in Paratext itself; None requests project navigation without an explicit group broadcast. Other groups receive no explicit plugin update.
+- `IScriptureTextSelection` exposes read-only anchor text/offset/reference properties. There is no supported editor selection/caret setter. The queue visibly identifies anchored text and explicitly labels navigation as verse-only. Reference confirmation is not proof that the host visibly selected a word or moved its editing caret.
+- No public API registers a custom tool/control with Paratext's docking, tabbed-window or auto-hide manager. `IParatextStandalonePlugin` supplies menu entries, not a host window container. Reflection into private host layout classes is not used. **Keep #3 open.** An actionable next step is a Paratext API request for custom dockable controls and layout persistence. In this host, use the modeless floating queue beside Scripture, resize it or minimize it while browsing.
+
+The [official reference plugins](https://github.com/ubsicap/paratext_demo_plugins) provide API examples; the installed interface assemblies are the compatibility authority for this build.
+
+## Validation
+
+138 synthetic checks pass against the installed interfaces. New coverage includes cross-book MAT 5:6 targeting, chosen-group-only synchronization, draft/deletion/region restoration, exact Previous/Next boundaries, reviewed/resolved inspection, one/multiple/empty/unavailable book scopes, pre-index scope selection, per-scope resume, hidden recovery, another reviewer's resolution/discussion changes, missing sources, monitor-bound restoration, minimize/restore at narrow and wide sizes, and scoped report recovery. Rendered Tamil UI layouts were inspected at 450×640 (the supported minimum) and 760×900. A host-discovered minimize/restore bug was fixed by replacing the header flow container with a table and avoiding reflow while minimized.
+
+Native docking and auto-hide remain blocked by the public API. Real 100/150/200% DPI and multiple-monitor hardware checks remain pending; simulated scale checks are not a substitute. Host validation observations are recorded below as they are completed.
+
+## Host observations (Paratext 9.5.110.1)
+
+The final installed plugin's SHA-256 matches the build that passed all 138 checks. In NSTest, the queue opened from MRK 5:8 (a missing book in this disposable project) and reached the saved GEN 1:3 target. Previous reached the saved GEN 1:2 rejection with decision controls disabled. Selecting Resolved showed four resolved QA proposals, with saved evidence accessible and Apply/Reject disabled. Group B reference navigation reached GEN 1:1 in the actual NSTest Scripture window and linked resources; the queue explicitly confirmed the project reference. Scope, selected group and GEN 1:1 resume position survived close/restart and reinstall. The final build retained its header, correction fields and buttons after minimize/restore in the real host.
+
+No new Apply/Reject/manual/Resolve decision was performed in the host during these checks. All 85 IRVTam Scripture/note files remained byte-for-byte identical to the immediate pre-test hash baseline. Only local queue drafts/preferences and host window/reference state were changed. Production baseline hashes and build logs are local ignored artifacts, not release contents.
+
+Remaining acceptance work: actual host MAT 5:6 with a disposable Matthew fixture, explicit Return after browsing and unrelated-group isolation, multiple selected host books and comparison against the native Notes-tool filters, overlapping reviewer changes in a real disposable project, large-project filtered responsiveness, and the DPI/monitor matrix. Synthetic checks cover these logic paths where applicable; they do not establish those real-host results. Keep the issues open for that remaining acceptance work, and keep #3 open for its native layout blocker.

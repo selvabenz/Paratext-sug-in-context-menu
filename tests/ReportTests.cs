@@ -26,6 +26,17 @@ namespace NoteSuggestionsTests
         }
         public static void Run(Action<string, Action> test)
         {
+            test("scope and totals survive report recovery and decisions retain their original scope", delegate {
+                string root = Root(), project = Project(root, "scoped-project"); using (var p = new ReviewProgress(root, "scoped-project"))
+                {
+                    var session = new ReviewSession(p.DirectoryPath, "scoped-project", "Test", "Reviewer A");
+                    session.SetScope("MAT | Unresolved", 7, 1); var entry = Entry(session); entry.QueueScope = "GEN | All"; session.Track(entry);
+                    string report = session.WriteReport(project, 7, 1, "Paused"); string html = File.ReadAllText(report);
+                    Check(html.Contains("MAT | Unresolved") && html.Contains("GEN | All") && html.Contains("1 reviewed / 7 indexed in this scope"));
+                    ReviewSession.Recover(p.DirectoryPath, "unused-current-session", project, "scoped-project");
+                    html = File.ReadAllText(ReviewSession.Latest(p.DirectoryPath)); Check(html.Contains("MAT | Unresolved") && html.Contains("1 reviewed / 7 indexed in this scope"));
+                }
+            });
             test("unreadable resolved legacy discussion does not stop indexing or unrelated resolution", delegate {
                 var f = new Fixture(); f.Notes.Add(Unreadable(f, true)); string root = Root();
                 using (var q = QueueTests.Queue(f, root))

@@ -1,4 +1,4 @@
-## 0.3.0-preview.1 preset/report validation
+﻿## 0.3.0-preview.1 preset/report validation
 
 125 automated checks cover the prior workflow plus editable five-phrase presets, next-proposal input availability, under-lock full context capture, before/after snapshots and reviewer identity, footnote/body preservation, introduction and cross-chapter read snapshots, unchanged rejections, honest manual attribution, unverified attempts, 20 decisions out of 100, cumulative reports without duplicate empty stops, crash recovery, wrong-project refusal, audit path validation/repair, Tamil-safe highlighting, markup escaping and explicit unavailability for older metadata.
 
@@ -70,3 +70,19 @@ The user's session was saved and restarted normally for installation and updates
 8. Export USFM and compare an exact before/after diff. Confirm marker/note structure is preserved except for the deliberately chosen operation.
 9. With explicit test-project synchronization authorization, Send/Receive to another disposable copy and verify the same correction arrives. Record merge/conflict behavior.
 10. Record Paratext version, results and any API normalization differences before promoting a stable release.
+
+
+## Decision comment and bulk review development build — 6 November 2026
+
+The full suite passes **144 synthetic checks** against installed interface version 2.0.100.0. New checks cover decision replies in the original discussion, failed/ignored comment writes with pending recovery, duplicate-free retries after resolution failure, shared-thread completion, persisted category/search filters, bulk manual/no-change decisions without USFM writes, and refusal of sources changed after preview. Queue layouts were rendered and inspected at 450×640 and 760×900; filter and bulk-preview dialogs were also rendered and inspected. Logs and images are in ignored `artifacts/bin` and `artifacts/decision-build.log`.
+
+These checks exercise synthetic host objects. Actual `AddNewComment` persistence, author/language formatting, a controlled Send/Receive round trip, DPI hardware checks, and release installation remain pending. No production project was changed. See [DECISION_COMMENTS_PLAN.md](DECISION_COMMENTS_PLAN.md) for issue-submission blockers and acceptance criteria.
+
+
+## Installed decision-comment build — real-host acceptance, 6 November 2026
+
+Installed SHA-256: `D24717ABC33FF5A764532B1D9BA65C9D9F7E76F4A65FD89B2BC47C9F3BB15AFF`. The checked installer ran with Paratext closed, refreshed the official plugin cache, and preserved the previous binary in ignored local artifacts. Installed and built hashes match. All 144 synthetic checks passed before installation.
+
+In Paratext 9.5.110.1, the queue filtered three new NSTest proposals using a unique discussion search. Reject saved an attributed English/Tamil decision reply on the textual-basis thread and advanced. Bulk preview included exactly the remaining verse-alignment and USFM-marker proposals, initially unchecked, and required selection, shared comment and review acknowledgement. Submitting reported two decisions saved, zero failures and zero pending recovery. On-disk notes contain exactly one decision reply per test thread and a resolved terminal status. The full NSTest Scripture bytes are unchanged, and all 86 production Scripture/note files match the immediate pre-test baseline. A normal Paratext restart retained the saved filter and removed all three resolved fixtures from the unresolved scope. The session HTML report was generated in NSTest's Review Queue folder.
+
+Two monitors were present and the real floating window restored on the desktop at the current display settings. The full 100/150/200% DPI and monitor-transition matrix is not established. Send/Receive and second-reviewer visibility remain pending: NSTest is an unregistered local test project without a configured test synchronization partner. No production Send/Receive was initiated. Issue #5 remains open for these acceptance items.

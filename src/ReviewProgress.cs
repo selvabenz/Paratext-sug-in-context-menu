@@ -11,6 +11,7 @@ namespace ParatextNoteSuggestions
     {
         public string Id = "", Outcome = "", Reference = "", Category = "", Original = "", Replacement = "", Comment = "", Region = "", Updated = "", Resolution = "", Discussion = "";
         public string SessionId = "", AuditId = "", Reviewer = "", DecisionUtc = "", Actor = "", ActionUtc = "", BeforeContext = "", AfterContext = "", ContextScope = "", Evidence = "", SourceNote = "";
+        public string QueueScope = "";
         public bool ResolutionPending { get { return Completed && Resolution == "Pending"; } }
         public bool Completed { get { return Outcome == "Applied" || Outcome == "Rejected" || Outcome == "Completed manually"; } }
         public XElement ToXml()
@@ -19,7 +20,7 @@ namespace ParatextNoteSuggestions
                 new XElement("reference", Reference), new XElement("category", Category), new XElement("original", Original),
                 new XElement("replacement", Replacement), new XElement("comment", Comment), new XElement("region", Region), new XElement("updated", Updated), new XElement("resolution", Resolution), new XElement("discussion", Discussion),
                 new XElement("session", SessionId), new XElement("audit", AuditId), new XElement("reviewer", Reviewer), new XElement("decisionUtc", DecisionUtc), new XElement("actor", Actor), new XElement("actionUtc", ActionUtc),
-                new XElement("beforeContext", BeforeContext), new XElement("afterContext", AfterContext), new XElement("contextScope", ContextScope), new XElement("evidence", Evidence), new XElement("sourceNote", SourceNote));
+                new XElement("beforeContext", BeforeContext), new XElement("afterContext", AfterContext), new XElement("contextScope", ContextScope), new XElement("evidence", Evidence), new XElement("sourceNote", SourceNote), new XElement("queueScope", QueueScope));
         }
         public static ReviewRecord FromXml(XElement e)
         {
@@ -27,7 +28,7 @@ namespace ParatextNoteSuggestions
                 Category = (string)e.Element("category") ?? "", Original = (string)e.Element("original") ?? "", Replacement = (string)e.Element("replacement") ?? "",
                 Comment = (string)e.Element("comment") ?? "", Region = (string)e.Element("region") ?? "", Updated = (string)e.Element("updated") ?? "", Resolution = (string)e.Element("resolution") ?? "", Discussion = (string)e.Element("discussion") ?? "",
                 SessionId = (string)e.Element("session") ?? "", AuditId = (string)e.Element("audit") ?? "", Reviewer = (string)e.Element("reviewer") ?? "", DecisionUtc = (string)e.Element("decisionUtc") ?? "", Actor = (string)e.Element("actor") ?? "", ActionUtc = (string)e.Element("actionUtc") ?? "",
-                BeforeContext = (string)e.Element("beforeContext") ?? "", AfterContext = (string)e.Element("afterContext") ?? "", ContextScope = (string)e.Element("contextScope") ?? "", Evidence = (string)e.Element("evidence") ?? "", SourceNote = (string)e.Element("sourceNote") ?? "" };
+                BeforeContext = (string)e.Element("beforeContext") ?? "", AfterContext = (string)e.Element("afterContext") ?? "", ContextScope = (string)e.Element("contextScope") ?? "", Evidence = (string)e.Element("evidence") ?? "", SourceNote = (string)e.Element("sourceNote") ?? "", QueueScope = (string)e.Element("queueScope") ?? "" };
         }
     }
     // Local, per-user progress: never a project notes/USFM side channel. Each replacement is atomic.
@@ -73,8 +74,20 @@ namespace ParatextNoteSuggestions
         }
         public void SaveCursor(ReviewRecord draft)
         { AtomicWrite(Path.Combine(directory, "cursor.xml"), draft.ToXml()); }
+        public void SaveCursor(ReviewRecord draft, QueueScope scope)
+        { SaveCursor(draft); AtomicWrite(Path.Combine(directory, "cursor-" + scope.Key + ".xml"), draft.ToXml()); }
+        public ReviewRecord Cursor(QueueScope scope)
+        { string path = Path.Combine(directory, "cursor-" + scope.Key + ".xml"); return File.Exists(path) ? ReviewRecord.FromXml(XElement.Load(path)) : Cursor(); }
+        public QueueScope LoadScope()
+        { string path = Path.Combine(directory, "scope.xml"); return QueueScope.FromXml(File.Exists(path) ? XElement.Load(path) : null); }
+        public void SaveScope(QueueScope scope)
+        { AtomicWrite(Path.Combine(directory, "scope.xml"), scope.ToXml()); }
         public ReviewRecord Cursor()
         { string path = Path.Combine(directory, "cursor.xml"); return File.Exists(path) ? ReviewRecord.FromXml(XElement.Load(path)) : null; }
+        public void SaveStartBook(int book)
+        { AtomicWrite(Path.Combine(directory, "start-book.xml"), new XElement("book", book)); }
+        public int StartBook()
+        { string path = Path.Combine(directory, "start-book.xml"); return File.Exists(path) ? (int)XElement.Load(path) : 0; }
         public IEnumerable<ReviewRecord> Outstanding()
         {
             foreach (string file in Directory.EnumerateFiles(directory, "*.review.xml"))

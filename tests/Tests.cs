@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -42,12 +42,21 @@ namespace NoteSuggestionsTests
         public IVerseRef Ref;
         public IScriptureTextSelection Anchor;
         public List<IProjectNote> Notes = new List<IProjectNote>();
+        public readonly List<int> ScannedBooks = new List<int>();
+        public IVerseRef LastNavigationReference, LastSyncReference;
+        public IReadOnlyProject LastNavigationProject;
+        public SyncReferenceGroup LastSyncGroup;
+        public int SyncCalls;
+        public List<IBookInfo> AvailableBooks = new List<IBookInfo> { Book(1, "GEN") };
+        public static IBookInfo Book(int number, string code)
+        { return Stub<IBookInfo>.Create((m, a) => m.Name == "get_Number" ? (object)number : (object)code); }
         public List<IUSFMToken> Tokens = new List<IUSFMToken>();
         public Dictionary<string, List<IUSFMToken>> Serialized = new Dictionary<string, List<IUSFMToken>>();
         public NoteSuggestionsPlugin Plugin = new NoteSuggestionsPlugin();
         public bool Editable = true, LockAvailable = true, Resolved, IgnorePut, Revoke, ThrowPut;
         public bool LockHeld, NotesLockHeld, NotesLockAvailable = true, ThrowResolve, IgnoreResolve;
         public int Resolves;
+        public bool IgnoreComment, ThrowComment;
         public Action OnHistory;
         public int Writes, Released, Notifications, History, Navigations, ActiveVerse = 3;
         public List<IComment> Replies = new List<IComment>();
@@ -63,6 +72,11 @@ namespace NoteSuggestionsTests
             NoteText = Qa("Punctuation", "பழைய", "புதிய", "No");
             var note = Stub<IProjectNote>.Create((m, a) => {
                 switch(m.Name) {
+                    case "AddNewComment":
+                        if (!NotesLockHeld) throw new InvalidOperationException("Notes lock required");
+                        if (ThrowComment) throw new InvalidOperationException("Injected comment failure");
+                        var reply = Comment(String.Join("\r\n", ((IEnumerable<CommentParagraph>)a[1]).Select(p => String.Concat(p.Spans.Select(span => span.Text)))));
+                        if (!IgnoreComment) Replies.Add(reply); return reply;
                     case "get_IsResolved": return Resolved;
                     case "Resolve":
                         if (!LockHeld || !NotesLockHeld) throw new InvalidOperationException("Notes lock required");
@@ -79,8 +93,9 @@ namespace NoteSuggestionsTests
                 switch(m.Name) {
                     case "get_ID": return ProjectId;
                     case "get_ShortName": return "Synthetic Test";
-                    case "get_AvailableBooks": return new List<IBookInfo> { Stub<IBookInfo>.Create((bm, ba) => bm.Name == "get_Number" ? (object)1 : (object)"GEN") };
-                    case "GetNotes": return Notes;
+                    case "get_Language": return null;
+                    case "get_AvailableBooks": return AvailableBooks;
+                    case "GetNotes": ScannedBooks.Add((int)a[0]); return Notes.Where(n => n.Anchor.VerseRefStart.BookNum == (int)a[0]).ToList();
                     case "CanEdit": return Editable;
                     case "RequestWriteLock":
                         bool notesLock = a.Length == 3 && a[2] is WriteLockScope;
@@ -106,10 +121,18 @@ namespace NoteSuggestionsTests
                 }
             });
             State = Stub<IParatextChildState>.Create((m, a) => {
-                switch(m.Name) { case "get_Project": return Project; case "get_VerseRef": return MakeRef(1, ActiveVerse); case "get_Selections": return Selections; default: throw new NotSupportedException(m.Name); }
+                switch(m.Name) { case "get_Project": return Project; case "get_VerseRef": return MakeRef(1, ActiveVerse); case "get_SyncReferenceGroup": return SyncReferenceGroup.None; case "get_Selections": return Selections; default: throw new NotSupportedException(m.Name); }
             });
             Host = Stub<IPluginHost>.Create((m, a) => {
-                switch(m.Name) { case "get_UserInfo": return Stub<IUserInfo>.Create((um, ua) => um.Name == "get_Name" ? UserName : null); case "get_ActiveWindowState": return State; case "get_ApplicationVersion": return new Version(9,5,110,1); case "OpenTextWindowFor": Navigations++; return null; default: throw new NotSupportedException("host."+m.Name); }
+                switch(m.Name) {
+                    case "get_UserInfo": return Stub<IUserInfo>.Create((um, ua) => um.Name == "get_Name" ? UserName : null);
+                    case "get_ActiveWindowState": return State;
+                    case "get_AllOpenWindows": return new[] { State };
+                    case "get_ApplicationVersion": return new Version(9,5,110,1);
+                    case "OpenTextWindowFor": Navigations++; LastNavigationProject = (IReadOnlyProject)a[0]; LastNavigationReference = (IVerseRef)a[2]; return null;
+                    case "SetReferenceForSyncGroup": SyncCalls++; LastSyncReference = (IVerseRef)a[0]; LastSyncGroup = (SyncReferenceGroup)a[1]; return null;
+                    default: throw new NotSupportedException("host."+m.Name);
+                }
             });
         }
         public NoteService Service() { return new NoteService(Plugin, Host, State); }
@@ -120,10 +143,10 @@ namespace NoteSuggestionsTests
             Serialized[value] = list;
             return value;
         }
-        public static IVerseRef MakeRef(int chapter, int verse)
+        public static IVerseRef MakeRef(int chapter, int verse, int book = 1)
         {
             return Stub<IVerseRef>.Create((m,a) => {
-                switch(m.Name) { case "get_BookNum": return 1; case "get_BookCode": return "GEN"; case "get_ChapterNum": return chapter; case "get_VerseNum": return verse; case "get_RepresentsMultipleVerses": return false; case "ToString": return "GEN " + chapter + ":" + verse; default: throw new NotSupportedException(m.Name); }
+                switch(m.Name) { case "get_BookNum": return book; case "get_BookCode": return book == 1 ? "GEN" : "MAT"; case "get_ChapterNum": return chapter; case "get_VerseNum": return verse; case "get_RepresentsMultipleVerses": return false; case "ToString": return (book == 1 ? "GEN" : "MAT") + " " + chapter + ":" + verse; default: throw new NotSupportedException(m.Name); }
             });
         }
         public static IUSFMTextToken Text(string text, int chapter, int verse, bool scripture, bool note)

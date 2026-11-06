@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -15,15 +15,234 @@ namespace NoteSuggestionsTests
         static T Field<T>(object o, string name) { return (T)o.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic).GetValue(o); }
         static void Call(object o, string name, params object[] args)
         { try { o.GetType().GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic).Invoke(o, args); } catch (TargetInvocationException ex) { throw ex.InnerException; } }
+        static void Scope(QueueForm q, QueueScope scope)
+        { Call(q, "ChangeScope", scope); while (Field<bool>(q, "indexing")) Call(q, "IndexBook"); }
+        static QueueScope Books(NoteStatusFilter status, params int[] books)
+        { var scope = new QueueScope { AllBooks = false, Status = status }; foreach (int book in books) scope.Books.Add(book); return scope; }
+        static Fixture MultiBook()
+        {
+            var f = new Fixture(); var matthew = new Fixture(); matthew.Ref = Fixture.MakeRef(5, 6, 40);
+            f.AvailableBooks.Add(Fixture.Book(40, "MAT")); f.Notes.Add(matthew.Notes[0]); return f;
+        }
         public static QueueForm Queue(Fixture f, string root)
         {
             string project = Path.Combine(root, "project"); Directory.CreateDirectory(project);
             new System.Xml.Linq.XElement("ScriptureText", new System.Xml.Linq.XElement("Guid", f.ProjectId)).Save(Path.Combine(project, "Settings.xml"));
             var q = new QueueForm(f.Service(), root, project);
-            Call(q, "IndexBook"); Call(q, "IndexBook"); return q;
+            while (Field<bool>(q, "indexing")) Call(q, "IndexBook"); return q;
         }
         public static void Run(Action<string, Action> test)
         {
+            test("decision comment persists in the source thread before resolution", delegate {
+                var f = new Fixture(); using (var q = Queue(f, Root())) {
+                    Field<TextBox>(q, "comment").Text = "Keep this reading after source review"; Call(q, "Decide", "Rejected");
+                    string text = String.Join("", f.Replies.Single().Contents.SelectMany(p => p.Spans).Select(span => span.Text));
+                    Check(text.Contains("Keep this reading after source review") && text.Contains(f.UserName) && text.Contains("Decision: Rejected") && f.Resolved && f.Writes == 0); q.Close();
+                }
+            });
+            test("reply failure leaves recoverable decision and retry writes exactly one reply", delegate {
+                foreach (bool ignored in new[] { true, false }) {
+                    var f = new Fixture { IgnoreComment = ignored, ThrowComment = !ignored }; string root = Root();
+                    using (var q = Queue(f, root)) {
+                        Field<TextBox>(q, "comment").Text = "Reviewed"; Call(q, "Decide", "Rejected");
+                        Check(!f.Resolved && f.Replies.Count == 0 && Field<ReviewProgress>(q, "progress").Outstanding().Count() == 1);
+                        f.IgnoreComment = f.ThrowComment = false; Call(q, "FinishResolution");
+                        Check(f.Resolved && f.Replies.Count == 1 && f.Writes == 0); q.Close();
+                    }
+                }
+            });
+            test("resolve retry after saved reply does not duplicate comment", delegate {
+                var f = new Fixture { ThrowResolve = true }; using (var q = Queue(f, Root())) {
+                    Field<TextBox>(q, "comment").Text = "Reviewed"; Call(q, "Decide", "Rejected"); Check(f.Replies.Count == 1 && !f.Resolved);
+                    f.ThrowResolve = false; Call(q, "FinishResolution"); Check(f.Resolved && f.Replies.Count == 1 && f.Writes == 0); q.Close();
+                }
+            });
+            test("category and discussion filters persist with separate scope cursors", delegate {
+                var f = new Fixture(); f.Replies.Add(Fixture.Comment(Fixture.Qa("Textual-basis review", "old", "retain", "Yes"))); string root = Root();
+                var scope = new QueueScope { Category = "Textual-basis review", Search = "retain" };
+                using (var q = Queue(f, root)) { Scope(q, scope); Check(Field<System.Collections.Generic.List<NoteCandidate>>(q, "items").Count == 1); q.Close(); }
+                using (var q = Queue(f, root)) { Check(Field<QueueScope>(q, "scope").Category == scope.Category && Field<QueueScope>(q, "scope").Search == scope.Search); Check(f.Resolves == 0 && f.Writes == 0); q.Close(); }
+                Check(scope.Key != new QueueScope().Key);
+            });
+            test("bulk review writes per-proposal comments and resolves shared thread without USFM edits", delegate {
+                var f = new Fixture(); f.Replies.Add(Fixture.Comment(Fixture.Qa("USFM marker", "old", "new", "Yes")));
+                using (var q = Queue(f, Root())) {
+                    var selected = Field<System.Collections.Generic.List<NoteCandidate>>(q, "items").ToList();
+                    Call(q, "RunBulk", selected, "Reviewed manually; no further change needed");
+                    Check(f.Resolved && f.Resolves == 1 && f.Writes == 0 && f.Replies.Count == 3); q.Close();
+                }
+            });
+            test("bulk review refuses changed sources and keeps comment failures in recovery", delegate {
+                var f = new Fixture { IgnoreComment = true }; using (var q = Queue(f, Root())) {
+                    var selected = Field<System.Collections.Generic.List<NoteCandidate>>(q, "items").ToList();
+                    Call(q, "RunBulk", selected, "Reviewed manually"); Check(!f.Resolved && f.Replies.Count == 0 && f.Writes == 0);
+                    Check(Field<Label>(q, "status").Text.Contains("1 failed") && Field<Label>(q, "status").Text.Contains("1 pending recovery")); q.Close();
+                }
+                f = new Fixture(); using (var q = Queue(f, Root())) {
+                    var selected = Field<System.Collections.Generic.List<NoteCandidate>>(q, "items").ToList(); f.Replies.Add(Fixture.Comment("New human discussion"));
+                    Call(q, "RunBulk", selected, "Reviewed manually"); Check(!f.Resolved && f.Replies.Count == 1 && f.Writes == 0); q.Close();
+                }
+            });
+            test("resize and minimize restore retain visible header, text fields and primary actions", delegate {
+                var f = MultiBook(); using (var q = Queue(f, Root()))
+                {
+                    q.Show(); Application.DoEvents();
+                    foreach (var size in new[] { new System.Drawing.Size(450, 640), new System.Drawing.Size(760, 900) })
+                    {
+                        q.Size = size; Application.DoEvents();
+                        q.WindowState = FormWindowState.Minimized; Application.DoEvents(); q.WindowState = FormWindowState.Normal; Application.DoEvents();
+                        foreach (Control control in new Control[] { Field<Label>(q, "heading"), Field<Label>(q, "scopeLabel"), Field<TextBox>(q, "original"), Field<Button>(q, "previous"), Field<Button>(q, "next"), Field<Button>(q, "pause") })
+                        {
+                            var bounds = q.RectangleToClient(control.RectangleToScreen(control.ClientRectangle));
+                            Check(control.Visible && control.Width > 0 && control.Height > 0 && q.ClientRectangle.IntersectsWith(bounds));
+                        }
+                        using (var bitmap = new System.Drawing.Bitmap(q.Width, q.Height))
+                        { q.DrawToBitmap(bitmap, new System.Drawing.Rectangle(0, 0, q.Width, q.Height)); bitmap.Save(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "queue-layout-" + size.Width + ".png")); }
+                    }
+                    Check(f.Writes == 0 && f.Resolves == 0); q.Close();
+                }
+            });
+            test("missing sources stay blocked when revisited and layout restores inside the current monitor", delegate {
+                var f = MultiBook(); string root = Root();
+                using (var q = Queue(f, root))
+                {
+                    Call(q, "Browse", 1); f.Notes.RemoveAt(0); Call(q, "Browse", -1);
+                    Field<TextBox>(q, "comment").Text = "Source disappeared"; Field<CheckBox>(q, "reviewed").Checked = true;
+                    Check(!Field<Button>(q, "apply").Enabled && !Field<Button>(q, "reject").Enabled && !Field<Button>(q, "manual").Enabled); q.Close();
+                }
+                using (var p = new ReviewProgress(root, f.ProjectId))
+                    new System.Xml.Linq.XElement("layout", new System.Xml.Linq.XAttribute("x", -30000), new System.Xml.Linq.XAttribute("y", -30000), new System.Xml.Linq.XAttribute("width", 800), new System.Xml.Linq.XAttribute("height", 700)).Save(Path.Combine(p.DirectoryPath, "layout.xml"));
+                using (var q = Queue(f, root))
+                {
+                    Check(System.Windows.Forms.Screen.AllScreens.Any(s => s.WorkingArea.IntersectsWith(q.Bounds)) && f.Writes == 0 && f.Resolves == 0); q.Close();
+                }
+            });
+            test("Previous and Next retain per-item wording, region, deletion and comments with disabled boundaries", delegate {
+                var f = MultiBook(); string root = Root();
+                using (var q = Queue(f, root))
+                {
+                    Check(!Field<Button>(q, "previous").Enabled && Field<Button>(q, "next").Enabled);
+                    Field<TextBox>(q, "original").Text = "தமிழ் உரை"; Field<TextBox>(q, "comment").Text = "First draft";
+                    Field<ComboBox>(q, "region").SelectedItem = ContentRegion.Footnote; Field<CheckBox>(q, "deletion").Checked = true;
+                    Call(q, "Browse", 1); Check(Field<NoteCandidate>(q, "current").Book == 40 && !Field<Button>(q, "next").Enabled);
+                    Field<TextBox>(q, "comment").Text = "Second draft"; Call(q, "Browse", -1);
+                    Check(Field<TextBox>(q, "original").Text == "தமிழ் உரை" && Field<TextBox>(q, "comment").Text == "First draft");
+                    Check(Field<CheckBox>(q, "deletion").Checked && (ContentRegion)Field<ComboBox>(q, "region").SelectedItem == ContentRegion.Footnote);
+                    Call(q, "Browse", -1); Check(Field<NoteCandidate>(q, "current").Book == 1 && f.Writes == 0 && f.Resolves == 0); q.Close();
+                }
+                using (var q = Queue(f, root)) { Check(Field<TextBox>(q, "comment").Text == "First draft"); Call(q, "Browse", 1); Check(Field<TextBox>(q, "comment").Text == "Second draft"); q.Close(); }
+            });
+            test("single and multiple book filters index selected books before loading, with per-scope resume", delegate {
+                var f = MultiBook(); string root = Root();
+                using (var q = Queue(f, root))
+                {
+                    Field<TextBox>(q, "comment").Text = "Genesis retained"; f.ScannedBooks.Clear(); Scope(q, Books(NoteStatusFilter.All, 40));
+                    Check(f.ScannedBooks.All(b => b == 40) && Field<NoteCandidate>(q, "current").Book == 40);
+                    Check(!Field<Button>(q, "previous").Enabled && !Field<Button>(q, "next").Enabled);
+                    Field<TextBox>(q, "comment").Text = "Matthew retained";
+                    Scope(q, Books(NoteStatusFilter.All, 1, 40)); Check(Field<System.Collections.Generic.List<NoteCandidate>>(q, "items").Count == 2);
+                    Scope(q, Books(NoteStatusFilter.All, 40)); Check(Field<TextBox>(q, "comment").Text == "Matthew retained"); q.Close();
+                }
+                using (var q = Queue(f, root)) { Check(Field<NoteCandidate>(q, "current").Book == 40 && Field<Label>(q, "scopeLabel").Text.Contains("MAT")); q.Close(); }
+            });
+            test("Resolved and All use source status independently of local decisions and stay inspection only", delegate {
+                var f = MultiBook(); f.Resolved = true;
+                using (var q = Queue(f, Root()))
+                {
+                    Check(Field<NoteCandidate>(q, "current").Book == 40);
+                    Scope(q, new QueueScope { Status = NoteStatusFilter.Resolved });
+                    Check(Field<NoteCandidate>(q, "current").Book == 1 && Field<NoteCandidate>(q, "current").IsResolved);
+                    Field<CheckBox>(q, "reviewed").Checked = true; Field<TextBox>(q, "comment").Text = "Inspection";
+                    Call(q, "Decide", "Applied"); Call(q, "Decide", "Rejected"); Call(q, "Decide", "Completed manually");
+                    Check(!Field<Button>(q, "apply").Enabled && f.Writes == 0 && f.Resolves == 0);
+                    Scope(q, new QueueScope { Status = NoteStatusFilter.All });
+                    Check(Field<System.Collections.Generic.List<NoteCandidate>>(q, "items").Count == 2); q.Close();
+                }
+            });
+            test("reviewed history restores the saved evidence and cannot overwrite or resubmit its decision", delegate {
+                var f = MultiBook(); string root = Root();
+                using (var q = Queue(f, root))
+                {
+                    Scope(q, new QueueScope { Status = NoteStatusFilter.All });
+                    Field<TextBox>(q, "comment").Text = "Reviewed Genesis"; Call(q, "Decide", "Rejected");
+                    Check(f.Resolves == 1); Call(q, "Browse", -1);
+                    Check(Field<TextBox>(q, "source").Text.Contains("SAVED LOCAL DECISION: Rejected") && Field<TextBox>(q, "comment").Text == "Reviewed Genesis");
+                    Call(q, "Decide", "Rejected"); Call(q, "Decide", "Applied"); Check(f.Writes == 0 && f.Resolves == 1); q.Close();
+                }
+            });
+            test("empty or unavailable book scopes stay empty without writes or losing drafts", delegate {
+                var f = MultiBook(); using (var q = Queue(f, Root()))
+                {
+                    Field<TextBox>(q, "comment").Text = "Keep me"; Scope(q, Books(NoteStatusFilter.Unresolved));
+                    Check(Field<NoteCandidate>(q, "current") == null && !Field<Button>(q, "next").Enabled);
+                    Scope(q, Books(NoteStatusFilter.All, 999)); Check(Field<NoteCandidate>(q, "current") == null && Field<Label>(q, "scopeLabel").Text.Contains("unavailable"));
+                    Scope(q, new QueueScope()); Check(Field<TextBox>(q, "comment").Text == "Keep me" && f.Writes == 0 && f.Resolves == 0); q.Close();
+                }
+            });
+            test("another reviewer resolving or changing discussion prevents local rejection before it is saved", delegate {
+                foreach (bool resolveSource in new[] { true, false })
+                {
+                    var f = new Fixture(); string root = Root(); string id = f.Service().ReadQueueBook(1).Single().StableId;
+                    using (var q = Queue(f, root))
+                    {
+                        if (resolveSource) f.Resolved = true; else f.Replies.Add(Fixture.Comment("Another reviewer changed the source"));
+                        Field<TextBox>(q, "comment").Text = "Stale review"; Call(q, "Decide", "Rejected");
+                        Check(f.Writes == 0 && f.Resolves == 0); q.Close();
+                    }
+                    using (var p = new ReviewProgress(root, f.ProjectId)) Check(!p.Get(id).Completed);
+                }
+            });
+            test("hidden interrupted applies have an explicit recovery view and cannot be retried by navigation", delegate {
+                var f = MultiBook(); string root = Root(); var c = f.Service().ReadQueueBook(1).Single();
+                using (var p = new ReviewProgress(root, f.ProjectId)) p.Save(new ReviewRecord { Id = c.StableId, Outcome = "Pending apply", Original = c.Proposal.Original, Replacement = c.Proposal.Suggested, Region = "Body" });
+                using (var q = Queue(f, root))
+                {
+                    Scope(q, Books(NoteStatusFilter.Unresolved, 40)); Check(Field<Label>(q, "heading").Text.Contains("outside this scope"));
+                    Scope(q, new QueueScope { RecoveryOnly = true, Status = NoteStatusFilter.All });
+                    Check(Field<NoteCandidate>(q, "current").Book == 1 && !Field<Button>(q, "apply").Enabled);
+                    Call(q, "Browse", 1); Field<CheckBox>(q, "reviewed").Checked = true; Call(q, "Decide", "Applied");
+                    Check(f.Writes == 0 && f.Resolves == 0); q.Close();
+                }
+            });
+            test("pinned project and exact cross-book reference navigate once and only the selected scroll group follows", delegate {
+                var f = MultiBook(); var service = f.Service(); var item = service.ReadQueueBook(40).Single();
+                service.NavigationGroup = Paratext.PluginInterfaces.SyncReferenceGroup.B; service.Navigate(item);
+                Check(f.LastNavigationProject.ID == f.ProjectId && f.LastNavigationReference.BookNum == 40 && f.LastNavigationReference.ChapterNum == 5 && f.LastNavigationReference.VerseNum == 6);
+                Check(f.SyncCalls == 1 && f.LastSyncGroup == Paratext.PluginInterfaces.SyncReferenceGroup.B && f.LastSyncReference == item.TargetReference);
+                service.NavigationGroup = Paratext.PluginInterfaces.SyncReferenceGroup.None; service.Navigate(item);
+                Check(f.SyncCalls == 1 && f.Writes == 0 && f.Resolves == 0 && !service.NavigationVisible(item));
+            });
+            test("choose a later book, preserve drafts, resume and wrap to earlier books without writes", delegate {
+                var f = new Fixture(); var laterBook = new Fixture(); laterBook.Ref = Fixture.MakeRef(1, 3, 40);
+                f.AvailableBooks.Add(Fixture.Book(40, "MAT")); f.Notes.Add(laterBook.Notes[0]);
+                string root = Root();
+                using (var q = Queue(f, root))
+                {
+                    Check(Field<NoteCandidate>(q, "current").Book == 1);
+                    Field<TextBox>(q, "comment").Text = "Genesis draft";
+                    Field<ComboBox>(q, "startBook").SelectedIndex = 1;
+                    Call(q, "StartFromBook");
+                    Check(Field<NoteCandidate>(q, "current").Book == 40 && f.Writes == 0 && f.Resolves == 0);
+                    Field<TextBox>(q, "comment").Text = "Matthew draft"; Call(q, "SaveDraft"); q.Close();
+                }
+                using (var q = Queue(f, root))
+                {
+                    Check(Field<NoteCandidate>(q, "current").Book == 40 && Field<TextBox>(q, "comment").Text == "Matthew draft");
+                    Call(q, "Next");
+                    Check(Field<NoteCandidate>(q, "current").Book == 1 && Field<TextBox>(q, "comment").Text == "Genesis draft");
+                    Check(f.Writes == 0 && f.Resolves == 0); q.Close();
+                }
+            });
+            test("book selection with no unfinished notes leaves the current draft and target intact", delegate {
+                var f = new Fixture(); f.AvailableBooks.Add(Fixture.Book(40, "MAT"));
+                using (var q = Queue(f, Root()))
+                {
+                    var current = Field<NoteCandidate>(q, "current"); Field<TextBox>(q, "comment").Text = "Keep draft";
+                    Field<ComboBox>(q, "startBook").SelectedIndex = 1; Call(q, "StartFromBook");
+                    Check(Field<NoteCandidate>(q, "current") == current && Field<TextBox>(q, "comment").Text == "Keep draft");
+                    Check(Field<Label>(q, "status").Text.Contains("No unfinished") && f.Writes == 0); q.Close();
+                }
+            });
             test("next proposal keeps comment controls enabled after a decision", delegate {
                 var f = new Fixture(); f.Replies.Add(Fixture.Comment(Fixture.Qa("Grammar", "old", "new", "Yes")));
                 using (var q = Queue(f, Root()))
@@ -66,8 +285,14 @@ namespace NoteSuggestionsTests
             test("lost local resolve acknowledgement is idempotent across reopen", delegate {
                 var f = new Fixture(); string root = Root(); var c = f.Service().ReadQueueBook(1).Single();
                 using (var p = new ReviewProgress(root, f.ProjectId)) p.Save(new ReviewRecord { Id = c.StableId, Outcome = "Rejected", Comment = "reviewed", Resolution = "Pending", Discussion = c.DiscussionKey });
+                using (var p = new ReviewProgress(root, f.ProjectId)) f.Replies.Add(Fixture.Comment(NoteService.DecisionReply(p.Get(c.StableId))));
                 f.Resolved = true;
-                using (var q = Queue(f, root)) { Check(Field<NoteCandidate>(q, "current") != null); Call(q, "FinishResolution"); Check(f.Resolves == 0 && f.Writes == 0); q.Close(); }
+                using (var q = Queue(f, root)) {
+                    Check(Field<NoteCandidate>(q, "current") == null && Field<Label>(q, "heading").Text.Contains("outside this scope"));
+                    Call(q, "ChangeScope", new QueueScope { RecoveryOnly = true, Status = NoteStatusFilter.All });
+                    while (Field<bool>(q, "indexing")) Call(q, "IndexBook");
+                    Check(Field<NoteCandidate>(q, "current") != null); Call(q, "FinishResolution"); Check(f.Resolves == 0 && f.Writes == 0); q.Close();
+                }
                 using (var p = new ReviewProgress(root, f.ProjectId)) Check(p.Get(c.StableId).Resolution == "Resolved");
             });
             test("changed discussion cannot be resolved automatically", delegate {

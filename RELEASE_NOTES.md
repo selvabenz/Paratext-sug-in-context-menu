@@ -1,3 +1,12 @@
+﻿# Installed development update — 6 November 2026
+
+- Save attributed decision replies in original Paratext note discussions, verify persistence before resolution, and avoid duplicate replies on retry.
+- Add persisted category/discussion search and selectable bulk manual/no-change resolution with a required shared comment. Bulk mode does not edit Scripture.
+- Compact Review / Source discussion / Tools layout and styled primary action.
+- All 144 synthetic checks pass. Real Paratext NSTest tests passed for single/bulk replies, Tamil content, source resolution and restart persistence; production Scripture/notes remained unchanged.
+- Installed binary SHA-256: `D24717ABC33FF5A764532B1D9BA65C9D9F7E76F4A65FD89B2BC47C9F3BB15AFF`.
+- Send/Receive with a configured second test reviewer and the complete DPI/monitor matrix remain pending. Issue #5 remains open.
+
 # 0.3.0-preview.1
 
 Adds editable reusable comments and full session review reports.

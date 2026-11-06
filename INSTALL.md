@@ -1,4 +1,4 @@
-# Install the preview
+﻿# Install the preview
 
 Version: 0.3.0-preview.1. Windows, Paratext 9.5.110.1, .NET Framework 4.8. The compiled plugin references the installed 2.0.100.0 interface assemblies; those proprietary host assemblies are not redistributed.
 
@@ -31,19 +31,27 @@ The installed API has fixed plugin menu registrations. Dynamic corrections appea
 
 Open the intended Scripture project, then right-click **Review note queue…** (also in Tools). It indexes all unresolved structured AI-QA proposals, one book at a time. The queue window is modeless: move or minimize it while checking references. No timer applies corrections or advances notes.
 
-1. Inspect the **Correction and decision** and **Full note and discussion** tabs. Verify the displayed project, passage and content region. Edit the chosen literal correction if necessary.
+1. Inspect the **Review** and **Source discussion** tabs. Verify the displayed project, passage and content region. Edit the chosen literal correction if necessary.
 2. Check **I reviewed this exact correction**, then **Apply and next**. Only a successfully verified USFM write records Applied and advances. Apply comments are optional.
 3. To reject, enter a reason and click **Reject and next**. To record work performed manually in Paratext, or a no-change decision, enter a comment, check review, and select **Completed manually / no change**.
 4. **Return to queued passage** navigates back after reference browsing. **Leave for later** retains a draft and moves on. **Pause** disables decisions; **Resume** continues. Closing saves the current draft. Reopen the same command/project to continue after restarting Paratext.
 5. **Export decisions...** writes a CSV of decisions/comments. Progress is local to this Windows user at `%LOCALAPPDATA%\ParatextNoteSuggestions\Review\<project-ID hash>`. Back up this folder with Paratext closed if you need to transfer review progress. It does not travel with Send/Receive. Do not delete it to retry an uncertain edit.
 
-An apply that reaches submission is marked **Pending apply** immediately before the Scripture write. A pre-write validation refusal can be revised or rejected normally. Inspect the saved passage and project history. If it was completed, record that manually with a comment; if you verified no edit occurred, use **Verified no edit; allow retry** and its confirmation. The queue never guesses or automatically repeats it. After Apply, Reject or Completed manually / no change, the decision/comment is saved locally, then the original note is resolved using Paratext's project-notes write lock. A thread with multiple QA proposals stays open until all have decisions. Comments remain local rather than being appended to the Paratext discussion.
+An apply that reaches submission is marked **Pending apply** immediately before the Scripture write. A pre-write validation refusal can be revised or rejected normally. Inspect the saved passage and project history. If it was completed, record that manually with a comment; if you verified no edit occurred, use **Verified no edit; allow retry** and its confirmation. The queue never guesses or automatically repeats it. After Apply, Reject or Completed manually / no change, the decision/comment is saved locally, then the original note is resolved using Paratext's project-notes write lock. A thread with multiple QA proposals stays open until all have decisions. The completed decision is appended as an attributed reply in the Paratext discussion and verified before resolution. Apply uses “Accepted as suggested.” if no comment was entered.
 
 If note resolution fails, the saved decision remains intact with **Pending** resolution. Resume and use **Retry note resolution**. This action never repeats the Scripture edit. The queue can acknowledge an already resolved note after a crash without resolving twice. Changed discussions or ambiguous/missing sources stop automatic resolution; inspect and resolve those manually in Paratext, then retry. Missing sources also produce a recovery notice after scanning and remain in the exported log.
 
-Earlier completed decisions from preview.1 are preserved and are not bulk-resolved on upgrade. Pause, Leave for later and closing without a decision do not resolve a note. Resolved items reviewed by this version remain counted in local queue progress; unrelated resolved notes are excluded. Resolved status belongs to the project and follows ordinary Paratext note synchronization; comments/progress remain local.
+Earlier completed decisions from preview.1 are preserved and are not bulk-resolved on upgrade. Pause, Leave for later and closing without a decision do not resolve a note. Resolved items reviewed by this version remain counted in local queue progress; unrelated resolved notes are excluded. Resolved status belongs to the project and follows ordinary Paratext note synchronization; decision replies are part of Paratext notes; drafts/progress remain local.
 
 Scope is unresolved `[AI-QA ...]` source comments, including R2/P3 and all 16 semantic categories. Legacy/human notes and native tag filtering are outside this queue. Multiple structured proposals in a thread are separate items; any conflicting correction still requires explicit review. Resolving a source note outside the queue removes it from the next scan. New notes are discovered when you reopen the queue.
+
+## Filters and bulk resolution
+
+Use **Filters...** to choose books, note status, an exact category or discussion-text search. Custom category names are accepted; searches such as `verse alignment` or `spacing` can find related discussions within broader categories. Filters and resume positions persist locally.
+
+Choose **Bulk resolve...** to preview filtered unfinished proposals. Select the proposals, read their discussions, enter the shared decision comment and acknowledge that no queue Scripture edit is needed. **Save decisions and resolve** records each selected item as manually reviewed/no-change and writes its decision reply. It does not apply the proposed text or change USFM. Resolve structural corrections manually in Paratext first. Threads with other unfinished proposals stay open. Source changes and comment/resolve failures are reported; use **Recovery** for pending saved decisions.
+
+Navigation settings, report access and retry controls are on **Tools**. Native docking remains unavailable through the installed public API.
 
 ## Comment dropdown and HTML reports
 
@@ -61,7 +69,7 @@ Applied context is captured under the write lock before submission and verified 
 
 Some older rich-text discussions can contain language tags that the Paratext plugin API cannot read. The queue records a visible warning and continues other notes. Unreadable unresolved notes are blocked from automatic decisions and can be left for manual handling; already-resolved warnings are informational. Warnings also appear in the report and are not silently counted as reviewed.
 
-Local session audit entries survive a crash. On a later stop/report request, interrupted sessions receive recovered reports where needed. HTML reports are ordinary files requested in the project folder; the plugin does not initiate Send/Receive for them. Reviewer comments remain outside Paratext note discussions.
+Local session audit entries survive a crash. On a later stop/report request, interrupted sessions receive recovered reports where needed. HTML reports are ordinary files requested in the project folder; the plugin does not initiate Send/Receive for them. Completed decision comments are also saved in their original Paratext note discussions.
 
 ## Recovery and removal
 
