@@ -74,8 +74,31 @@ namespace ParatextNoteSuggestions
         public void Navigate(NoteCandidate item)
         {
             host.OpenTextWindowFor(project, OpenWindowBehavior.UseExisting, item.TargetReference);
+            ScrollProjectTo(item);
+        }
+        public void ScrollProjectTo(NoteCandidate item)
+        {
+            // The saved optional group can differ from the project's group after layout changes.
+            // Read the activated project window, never an unrelated reference project's group.
+            var active = host.ActiveWindowState;
+            var window = active != null && active.Project != null && active.Project.ID == projectId ? active :
+                host.AllOpenWindows.FirstOrDefault(w => w.Project != null && w.Project.ID == projectId);
+            if (window != null && window.SyncReferenceGroup != SyncReferenceGroup.None && window.SyncReferenceGroup != NavigationGroup)
+                host.SetReferenceForSyncGroup(item.TargetReference, window.SyncReferenceGroup);
             if (NavigationGroup != SyncReferenceGroup.None) host.SetReferenceForSyncGroup(item.TargetReference, NavigationGroup);
         }
+        public void BeginReturnToPassage(NoteCandidate item)
+        {
+            // UseExisting can leave a manually scrolled editor unchanged when its reference
+            // already equals the target. Visit a neighbouring verse before returning on the
+            // next UI tick, so Paratext performs a real reference change and reveals the verse.
+            // This also works for an editor outside the synchronized scroll groups.
+            var adjacent = item.TargetReference.GetPreviousVerse(project);
+            if (adjacent == null || SameReference(adjacent, item.TargetReference)) adjacent = item.TargetReference.GetNextVerse(project);
+            host.OpenTextWindowFor(project, OpenWindowBehavior.UseExisting, adjacent ?? item.TargetReference);
+        }
+        static bool SameReference(IVerseRef left, IVerseRef right)
+        { return left.BookNum == right.BookNum && left.ChapterNum == right.ChapterNum && left.VerseNum == right.VerseNum; }
         public bool NavigationVisible(NoteCandidate item)
         {
             return host.AllOpenWindows.Any(w => w.Project != null && w.Project.ID == projectId && w.VerseRef != null &&

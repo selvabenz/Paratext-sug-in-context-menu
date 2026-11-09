@@ -30,6 +30,7 @@ namespace ParatextNoteSuggestions
         readonly Timer navigationTimer = new Timer { Interval = 150 };
         QueueScope scope;
         int navigationChecks;
+        bool returnNavigationPending;
         int firstBook;
         sealed class BookChoice
         {
@@ -44,7 +45,7 @@ namespace ParatextNoteSuggestions
         readonly ComboBox region = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Top };
         readonly CheckBox reviewed = new CheckBox { Text = "I reviewed this exact correction", AutoSize = true };
         readonly CheckBox deletion = new CheckBox { Text = "Explicitly delete the original text", AutoSize = true };
-        readonly Button apply = Button("Apply and next"), reject = Button("Reject and next"), manual = Button("Completed manually / no change"), retry = Button("Verified no edit; allow retry"), pause = Button("Pause"), later = Button("Leave for later"), back = Button("Return to queued passage");
+        readonly Button apply = Button("Apply + next"), reject = Button("Reject + next"), manual = Button("Completed manually / no change"), retry = Button("Verified no edit; allow retry"), pause = Button("Pause"), later = Button("Leave for later"), back = Button("Return to passage");
         readonly Button bulk = Button("Bulk resolve...");
         readonly Button resolve = Button("Retry note resolution");
         NoteCandidate current;
@@ -69,23 +70,22 @@ namespace ParatextNoteSuggestions
             var area = Screen.PrimaryScreen.WorkingArea;
             Size = new Size(Math.Min(760, area.Width - 30), Math.Min(900, area.Height - 35));
             MinimumSize = new Size(450, 640); StartPosition = FormStartPosition.CenterScreen;
-            var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, Padding = new Padding(16) };
+            var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, Padding = new Padding(8) };
+            root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 105)); root.RowStyles.Add(new RowStyle(SizeType.Absolute, 75));
-            heading.Font = new Font("Segoe UI Semibold", 11); heading.ForeColor = Color.FromArgb(30, 49, 70);
-            heading.AutoSize = true; heading.MaximumSize = new Size(690, 0); root.Controls.Add(heading);
-            var top = new TableLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 5 };
+            root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            heading.Font = new Font("Segoe UI Semibold", 10); heading.ForeColor = Color.FromArgb(30, 49, 70);
+            heading.AutoSize = true; heading.MaximumSize = new Size(690, 0);
+            var top = new TableLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Dock = DockStyle.Top, ColumnCount = 1, RowCount = 3 };
             top.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            for (int i = 0; i < 3; i++) top.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             var bookPicker = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill };
             bookPicker.Controls.Add(new Label { Text = "Review starting at", AutoSize = true, Padding = new Padding(0, 6, 0, 0) });
             bookPicker.Controls.Add(startBook); bookPicker.Controls.Add(startFromBook);
-            top.Controls.Add(bookPicker);
-            var scopePicker = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill }; scopePicker.Controls.Add(filters); scopePicker.Controls.Add(recovery); scopePicker.Controls.Add(bulk);
-            scopePicker.Controls.Add(new Label { Text = "Scroll group", AutoSize = true, Padding = new Padding(0, 6, 0, 0) }); scopePicker.Controls.Add(syncGroup);
+            var scopePicker = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Dock = DockStyle.Top }; scopePicker.Controls.Add(filters); scopePicker.Controls.Add(bulk); scopePicker.Controls.Add(recovery);
             syncGroup.Items.AddRange(Enum.GetValues(typeof(SyncReferenceGroup)).Cast<object>().ToArray()); syncGroup.SelectedItem = owner.NavigationGroup;
             syncGroup.SelectedIndexChanged += delegate { owner.NavigationGroup = (SyncReferenceGroup)syncGroup.SelectedItem; };
-            top.Controls.Add(scopePicker); top.Controls.Add(scopeLabel); top.Controls.Add(navigationLabel);
-            root.Controls.Remove(heading); top.Controls.Add(heading); root.Controls.Add(top, 0, 0);
+            top.Controls.Add(heading, 0, 0); top.Controls.Add(scopeLabel, 0, 1); top.Controls.Add(scopePicker, 0, 2); root.Controls.Add(top, 0, 0);
             firstBook = progress.StartBook();
             foreach (int number in owner.QueueBooks()) startBook.Items.Add(new BookChoice { Number = number, Code = owner.QueueBookCode(number) });
             if (startBook.Items.Count > 0) startBook.SelectedIndex = Math.Max(0, startBook.Items.Cast<BookChoice>().ToList().FindIndex(b => b.Number == firstBook));
@@ -94,25 +94,25 @@ namespace ParatextNoteSuggestions
             recovery.Click += delegate { Guard(delegate { ChangeScope(new QueueScope { RecoveryOnly = true, Status = NoteStatusFilter.All }); }); };
             bulk.Click += delegate { Guard(BulkResolve); };
             previous.Click += delegate { Guard(delegate { Browse(-1); }); }; next.Click += delegate { Guard(delegate { Browse(1); }); };
-            var fields = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, AutoScroll = true, Padding = new Padding(0, 8, 15, 0) };
+            var fields = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, AutoScroll = true, Padding = new Padding(2) };
+            fields.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 105));
             fields.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             source.ReadOnly = true; source.Dock = DockStyle.Fill;
             Add(fields, "Target region", region); region.Items.AddRange(Enum.GetValues(typeof(ContentRegion)).Cast<object>().ToArray());
-            original.Height = replacement.Height = 65; comment.Height = 65;
-            Add(fields, "Exact original", original); Add(fields, "Chosen literal replacement", replacement);
-            Add(fields, "Decision comment", commentPreset);
-            commentPreset.Items.Add("Choose a reusable decision phrase..."); commentPreset.Items.AddRange(CommentPresets.Values); commentPreset.SelectedIndex = 0;
-            fields.Controls.Add(comment);
-            fields.Controls.Add(deletion); fields.Controls.Add(reviewed);
-            fields.Controls.Add(manual);
+            Add(fields, "Original", original); Add(fields, "Replacement", replacement);
+            Add(fields, "Comment", commentPreset);
+            commentPreset.Items.Add("Choose a phrase (optional)"); commentPreset.Items.AddRange(CommentPresets.Values); commentPreset.SelectedIndex = 0;
+            Add(fields, "", comment);
+            foreach (Control control in new Control[] { deletion, reviewed, manual }) {
+                int row = fields.RowCount++;
+                fields.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                fields.Controls.Add(control, 0, row); fields.SetColumnSpan(control, 2);
+            }
             var tabs = new TabControl { Dock = DockStyle.Fill };
-            var correctionTab = new TabPage("Review") { BackColor = Color.White, Padding = new Padding(10) }; correctionTab.Controls.Add(fields);
+            var correctionTab = new TabPage("Review") { BackColor = Color.White, Padding = new Padding(4) }; correctionTab.Controls.Add(fields);
             var sourceTab = new TabPage("Source discussion"); sourceTab.Controls.Add(source);
             tabs.TabPages.Add(correctionTab); tabs.TabPages.Add(sourceTab); root.Controls.Add(tabs);
             // Keep the review header compact; infrequent navigation settings live with tools.
-            scopePicker.Controls.Clear(); scopePicker.Controls.Add(filters); scopePicker.Controls.Add(bulk); scopePicker.Controls.Add(recovery);
-            top.Controls.Clear(); top.RowCount = 3;
-            top.Controls.Add(heading, 0, 0); top.Controls.Add(scopeLabel, 0, 1); top.Controls.Add(scopePicker, 0, 2);
             var tools = new FlowLayoutPanel { AutoScroll = true, Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false };
             tools.Controls.Add(new Label { Text = "Navigation settings", AutoSize = true, Font = new Font("Segoe UI Semibold", 11) });
             tools.Controls.Add(bookPicker);
@@ -122,24 +122,24 @@ namespace ParatextNoteSuggestions
             foreach (var b in new[] { retry, resolve, later, viewReport, reportFolder }) tools.Controls.Add(b);
             var export = Button("Export decisions..."); tools.Controls.Add(export);
             var toolsTab = new TabPage("Tools"); toolsTab.Controls.Add(tools); tabs.TabPages.Add(toolsTab);
-            var actions = new FlowLayoutPanel { AutoScroll = true, Dock = DockStyle.Fill, WrapContents = true };
+            var actions = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Dock = DockStyle.Fill, WrapContents = true, Margin = new Padding(0, 3, 0, 0) };
             foreach (var b in new[] { previous, next, back, apply, reject, pause }) actions.Controls.Add(b);
             root.Controls.Add(actions);
-            var statusArea = new Panel { Dock = DockStyle.Fill, AutoScroll = true }; status.AutoSize = true; statusArea.Controls.Add(status); root.Controls.Add(statusArea); Controls.Add(root);
+            status.AutoSize = true; status.Margin = new Padding(3, 3, 3, 0); root.Controls.Add(status); Controls.Add(root);
             apply.BackColor = Color.FromArgb(27, 97, 150); apply.ForeColor = Color.White; apply.FlatAppearance.BorderSize = 0;
             Action reflow = delegate {
                 if (WindowState == FormWindowState.Minimized || root.ClientSize.Width < 300) return;
-                int width = root.ClientSize.Width - 30;
+                int width = root.ClientSize.Width - root.Padding.Horizontal - 6;
                 bookPicker.MaximumSize = scopePicker.MaximumSize = new Size(width, 0);
                 heading.MaximumSize = scopeLabel.MaximumSize = navigationLabel.MaximumSize = status.MaximumSize = new Size(width, 0);
                 foreach (Control control in fields.Controls) {
-                    control.Margin = new Padding(0, 3, 0, 3);
-                    if (control is Label || control is CheckBox || control is Button) control.MaximumSize = new Size(Math.Max(180, fields.ClientSize.Width - 25), 0);
+                    control.Margin = new Padding(2);
+                    if (control is CheckBox || control is Button) control.MaximumSize = new Size(Math.Max(180, fields.ClientSize.Width - 10), 0);
                 }
             };
             fields.SizeChanged += delegate { reflow(); }; root.SizeChanged += delegate { reflow(); };
             UpdateScopeLabel(); RestoreLayout();
-            status.Text = "Indexing unresolved AI-QA notes, one book at a time. Pause or close to stop. No Scripture changes occur during indexing.";
+            status.Text = "Indexing notes... Pause or close to stop.";
             heading.Text = owner.ProjectName + " - preparing review queue";
             apply.Click += delegate { Decide("Applied"); }; reject.Click += delegate { Decide("Rejected"); };
             manual.Click += delegate { Decide("Completed manually"); };
@@ -159,7 +159,13 @@ namespace ParatextNoteSuggestions
                 });
             };
             later.Click += delegate { Guard(delegate { SaveDraft(); Next(); }); };
-            back.Click += delegate { Guard(NavigateCurrent); };
+            back.Click += delegate { Guard(delegate {
+                navigationTimer.Stop(); if (current == null) return;
+                navigationLabel.Text = "Returning to " + current.DisplayReference + "...";
+                returnNavigationPending = true; navigationChecks = 0;
+                try { owner.BeginReturnToPassage(current); }
+                finally { navigationTimer.Start(); }
+            }); };
             export.Click += delegate { Guard(delegate { using (var dialog = new SaveFileDialog { Filter = "CSV review log|*.csv", FileName = "Note-review-decisions.csv" }) if (dialog.ShowDialog(this) == DialogResult.OK) progress.Export(dialog.FileName); }); };
             commentPreset.SelectedIndexChanged += delegate { if (!populating && commentPreset.SelectedIndex > 0) comment.Text = (string)commentPreset.SelectedItem; };
             reportFolder.Click += delegate { Guard(ChooseReportFolder); };
@@ -196,9 +202,16 @@ namespace ParatextNoteSuggestions
             base.Dispose(disposing);
         }
         static TextBox Box(int height) { return new TextBox { Multiline = true, ScrollBars = ScrollBars.Vertical, Height = height, Dock = DockStyle.Top }; }
-        static Button Button(string text) { var button = new Button { Text = text, AutoSize = true, FlatStyle = FlatStyle.Flat, BackColor = Color.White, Padding = new Padding(8, 4, 8, 4), Margin = new Padding(3, 3, 6, 3), Cursor = Cursors.Hand }; button.FlatAppearance.BorderColor = Color.FromArgb(200, 208, 217); return button; }
+        static Button Button(string text) { var button = new Button { Text = text, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, FlatStyle = FlatStyle.Flat, BackColor = Color.White, Padding = new Padding(4, 1, 4, 1), Margin = new Padding(2), Cursor = Cursors.Hand }; button.FlatAppearance.BorderColor = Color.FromArgb(200, 208, 217); return button; }
         static void Add(TableLayoutPanel panel, string label, Control control)
-        { panel.Controls.Add(new Label { Text = label, AutoSize = true, Font = new Font("Segoe UI Semibold", 10), ForeColor = Color.FromArgb(55, 70, 85), Padding = new Padding(0, 10, 0, 2) }); panel.Controls.Add(control); }
+        {
+            int row = panel.RowCount++;
+            var box = control as TextBox;
+            panel.RowStyles.Add(new RowStyle(box == null ? SizeType.AutoSize : SizeType.Percent, box == null ? 0 : 33.33f));
+            panel.Controls.Add(new Label { Text = label, AutoSize = true, Anchor = AnchorStyles.Top | AnchorStyles.Left, ForeColor = Color.FromArgb(55, 70, 85), Padding = new Padding(0, 3, 0, 0) }, 0, row);
+            if (box != null) { box.MinimumSize = new Size(0, 48); box.Dock = DockStyle.Fill; }
+            panel.Controls.Add(control, 1, row);
+        }
         void Guard(Action action) { try { action(); } catch (Exception ex) { Fail(ex); } }
         void UpdateScopeLabel()
         {
@@ -235,13 +248,20 @@ namespace ParatextNoteSuggestions
         }
         void NavigateCurrent()
         {
-            navigationTimer.Stop(); if (current == null) return;
+            navigationTimer.Stop(); returnNavigationPending = false; if (current == null) return;
             navigationLabel.Text = "Opening " + current.DisplayReference + " in " + owner.ProjectName + ". Verse navigation; anchor: " + NoteParser.Preview(current.AnchorText ?? "", 60);
             owner.Navigate(current); navigationChecks = 0; navigationTimer.Start();
         }
         void CheckNavigation()
         {
             if (current == null) { navigationTimer.Stop(); return; }
+            if (returnNavigationPending) {
+                returnNavigationPending = false; owner.Navigate(current);
+                // Allow the host to activate/load the editor before confirming its reference.
+                return;
+            }
+            // Re-send the scroll request after asynchronous project-window activation.
+            if (navigationChecks == 0) owner.ScrollProjectTo(current);
             bool visible = owner.NavigationVisible(current);
             if (visible || ++navigationChecks >= 12)
             {
@@ -300,7 +320,7 @@ namespace ParatextNoteSuggestions
             int missing = progress.Outstanding().Count(r => !seen.Contains(r.Id));
             if (missing > 0) recoveryNotice = "\r\n" + missing + " interrupted decision(s) are outside this scope or have missing/changed sources. Use Recovery or export decisions and inspect Paratext history/notes.";
             recovery.Text = "Recovery (" + progress.Outstanding().Count() + ")";
-            if (session.WarningCount > 0) recoveryNotice += "\r\n" + session.WarningCount + " unreadable discussion(s); other notes continue. See the report for manual attention.";
+            if (session.WarningCount > 0) recoveryNotice += "\r\n" + session.WarningCount + " unreadable discussions (see report).";
             SortItems();
             completed = items.Count(c => { var r = progress.Get(c.StableId); return r != null && r.Completed; });
             UpdateScopeLabel();
@@ -380,8 +400,8 @@ namespace ParatextNoteSuggestions
             populating = false;
             try { loadedContext = owner.CapturePassage(current, (ContentRegion)region.SelectedItem); } catch { loadedContext = ""; }
             if (restore != null && restore.BeforeContext.Length > 0) loadedContext = restore.BeforeContext;
-            heading.Text = owner.ProjectName + " | " + current.DisplayReference + " | " + current.Proposal.Pass + " | " + current.Proposal.Category + "\r\nItem " + (position + 1) + " / " + items.Count + " | " + completed + " locally reviewed | Paratext: " + (current.IsResolved ? "Resolved" : "Unresolved") + " | Decision: " + (previous == null ? "None" : previous.Outcome) + recoveryNotice;
-            if (!blocked) status.Text = ResolutionPending() ? "Decision saved locally. Retry note resolution to finish; the Scripture correction will not be repeated." : Pending() ? "An earlier apply did not finish recording. Inspect Paratext history and the passage, then confirm completed manually or confirm no edit before retrying." : "Waiting for Apply or Reject. Browse references freely. Decision comments are saved in the Paratext discussion; the note resolves when all its proposals have decisions.";
+            heading.Text = current.DisplayReference + " | " + current.Proposal.Pass + " | " + current.Proposal.Category + "\r\n" + (position + 1) + " / " + items.Count + " | " + completed + " reviewed | " + (current.IsResolved ? "Resolved" : "Unresolved") + (previous == null ? "" : " | " + previous.Outcome) + recoveryNotice;
+            if (!blocked) status.Text = ResolutionPending() ? "Decision saved locally. Retry note resolution to finish; the Scripture correction will not be repeated." : Pending() ? "An earlier apply did not finish recording. Inspect Paratext history and the passage, then confirm completed manually or confirm no edit before retrying." : "Review the correction, then apply or reject.";
             else status.Text = "Source changed, unavailable, or duplicate identity. Automatic Apply is blocked. Inspect in Paratext; leave for later or record a commented manual decision.";
             if (current.Unreadable) status.Text = "Paratext cannot read this discussion. Decisions are blocked for this note; inspect/fix it in Paratext or Leave for later. Other notes can continue.";
             if (previous != null && previous.Completed) source.Text += "\r\n\r\nSAVED LOCAL DECISION: " + previous.Outcome + "\r\n" + previous.Comment + "\r\n" + previous.Evidence + "\r\nBefore:\r\n" + previous.BeforeContext + "\r\nAfter:\r\n" + previous.AfterContext;

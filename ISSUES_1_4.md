@@ -31,6 +31,18 @@ Native docking and auto-hide remain blocked by the public API. Real 100/150/200%
 
 ## Host observations (Paratext 9.5.110.1)
 
+### Compact review panel (2026-11-09)
+
+The review panel uses smaller buttons and margins, labels beside the editable fields, and content-sized action/status rows instead of fixed bottom reservations. Routine headings and instructions are shorter; review/deletion confirmations and recovery warnings remain visible. The existing layout regression now checks that every review field, confirmation, action and status fits within its parent containers without panel scrollbars at 450×640, 669×720 and the screen-constrained 760×900 size, including minimize/restore. Long text remains scrollable inside its own editor. The installed compact panel was also inspected in Paratext. Native docking and the full DPI/monitor hardware matrix remain pending under #3 and #5.
+
+### Return-to-passage correction (2026-11-09)
+
+Return now visits a neighbouring verse and returns to the pinned source verse on the next UI timer tick. This forces a reference transition when the editor still reports the target verse after the user has manually scrolled away. It uses the existing project editor, including an editor with no scroll group. Normal navigation also reads the project's current window group rather than relying solely on the saved optional group, and sends the scroll request again after asynchronous window activation. The optional chosen group continues to receive its requested update. Scripture edits and note decisions are unaffected.
+
+147 synthetic checks pass, including changed project group, no saved group, the two-step Return sequence, and the first-verse fallback. These checks verify navigation requests and unchanged Scripture/notes; reference confirmation alone does not prove viewport position in the real host.
+
+Installed-build visual check passed in Paratext 9.5.110.1 with IRVTam at LUK 1:28. Manually scrolling the Scripture editor down exposed verses 35–43 while the toolbar and editor tab still reported LUK 1:28. Clicking Return to passage brought verse 28 back into the editor viewport. No Apply, Reject, manual completion, or note resolution command was invoked. The installed plugin SHA-256 matches the build that passed 147 checks. The ungrouped-editor path and changed-group cases have synthetic coverage; their real-host visual checks remain pending.
+
 The final installed plugin's SHA-256 matches the build that passed all 138 checks. In NSTest, the queue opened from MRK 5:8 (a missing book in this disposable project) and reached the saved GEN 1:3 target. Previous reached the saved GEN 1:2 rejection with decision controls disabled. Selecting Resolved showed four resolved QA proposals, with saved evidence accessible and Apply/Reject disabled. Group B reference navigation reached GEN 1:1 in the actual NSTest Scripture window and linked resources; the queue explicitly confirmed the project reference. Scope, selected group and GEN 1:1 resume position survived close/restart and reinstall. The final build retained its header, correction fields and buttons after minimize/restore in the real host.
 
 No new Apply/Reject/manual/Resolve decision was performed in the host during these checks. All 85 IRVTam Scripture/note files remained byte-for-byte identical to the immediate pre-test hash baseline. Only local queue drafts/preferences and host window/reference state were changed. Production baseline hashes and build logs are local ignored artifacts, not release contents.

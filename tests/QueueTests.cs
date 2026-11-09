@@ -83,18 +83,24 @@ namespace NoteSuggestionsTests
                     Call(q, "RunBulk", selected, "Reviewed manually"); Check(!f.Resolved && f.Replies.Count == 1 && f.Writes == 0); q.Close();
                 }
             });
-            test("resize and minimize restore retain visible header, text fields and primary actions", delegate {
+            test("compact review fits every field and action without panel scrolling after resize or restore", delegate {
                 var f = MultiBook(); using (var q = Queue(f, Root()))
                 {
                     q.Show(); Application.DoEvents();
-                    foreach (var size in new[] { new System.Drawing.Size(450, 640), new System.Drawing.Size(760, 900) })
+                    foreach (var size in new[] { new System.Drawing.Size(450, 640), new System.Drawing.Size(669, 720), new System.Drawing.Size(760, 900) })
                     {
                         q.Size = size; Application.DoEvents();
                         q.WindowState = FormWindowState.Minimized; Application.DoEvents(); q.WindowState = FormWindowState.Normal; Application.DoEvents();
-                        foreach (Control control in new Control[] { Field<Label>(q, "heading"), Field<Label>(q, "scopeLabel"), Field<TextBox>(q, "original"), Field<Button>(q, "previous"), Field<Button>(q, "next"), Field<Button>(q, "pause") })
+                        foreach (string name in new[] { "heading", "scopeLabel", "region", "original", "replacement", "commentPreset", "comment", "deletion", "reviewed", "manual", "previous", "next", "back", "apply", "reject", "pause", "status" })
                         {
+                            Control control = Field<Control>(q, name);
                             var bounds = q.RectangleToClient(control.RectangleToScreen(control.ClientRectangle));
-                            Check(control.Visible && control.Width > 0 && control.Height > 0 && q.ClientRectangle.IntersectsWith(bounds));
+                            Check(control.Visible && control.Width > 0 && control.Height > 0 && q.ClientRectangle.Contains(bounds));
+                            for (Control parent = control.Parent; parent != null && parent != q; parent = parent.Parent) {
+                                Check(parent.ClientRectangle.Contains(parent.RectangleToClient(control.RectangleToScreen(control.ClientRectangle))));
+                                var table = parent as TableLayoutPanel;
+                                if (table != null) Check(!table.VerticalScroll.Visible && !table.HorizontalScroll.Visible);
+                            }
                         }
                         using (var bitmap = new System.Drawing.Bitmap(q.Width, q.Height))
                         { q.DrawToBitmap(bitmap, new System.Drawing.Rectangle(0, 0, q.Width, q.Height)); bitmap.Save(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "queue-layout-" + size.Width + ".png")); }
@@ -211,6 +217,36 @@ namespace NoteSuggestionsTests
                 Check(f.SyncCalls == 1 && f.LastSyncGroup == Paratext.PluginInterfaces.SyncReferenceGroup.B && f.LastSyncReference == item.TargetReference);
                 service.NavigationGroup = Paratext.PluginInterfaces.SyncReferenceGroup.None; service.Navigate(item);
                 Check(f.SyncCalls == 1 && f.Writes == 0 && f.Resolves == 0 && !service.NavigationVisible(item));
+            });
+            test("navigation scrolls the actual project group even when the saved group is None or stale", delegate {
+                var f = MultiBook(); var service = f.Service(); var item = service.ReadQueueBook(40).Single();
+                f.EditorSyncGroup = Paratext.PluginInterfaces.SyncReferenceGroup.C;
+                service.NavigationGroup = Paratext.PluginInterfaces.SyncReferenceGroup.None;
+                service.Navigate(item);
+                Check(f.SyncCalls == 1 && f.LastSyncGroup == f.EditorSyncGroup && f.LastSyncReference == item.TargetReference);
+                service.NavigationGroup = Paratext.PluginInterfaces.SyncReferenceGroup.B;
+                service.Navigate(item);
+                Check(f.SyncCalls == 3 && f.LastSyncGroup == service.NavigationGroup && f.Writes == 0 && f.Resolves == 0);
+            });
+            test("Return forces a verse change and returns to the exact pinned verse on the next UI tick", delegate {
+                var f = new Fixture(); using (var q = Queue(f, Root())) {
+                    q.Show(); Application.DoEvents();
+                    var target = Field<NoteCandidate>(q, "current");
+                    f.ActiveVerse = target.FirstVerse;
+                    Field<Button>(q, "back").PerformClick();
+                    Check(Field<bool>(q, "returnNavigationPending"));
+                    Check(f.LastNavigationReference.VerseNum != target.FirstVerse);
+                    Call(q, "CheckNavigation");
+                    Check(!Field<bool>(q, "returnNavigationPending") && f.LastNavigationReference == target.TargetReference);
+                    Check(f.LastNavigationProject.ID == f.ProjectId && f.Writes == 0 && f.Resolves == 0);
+                    q.Close();
+                }
+            });
+            test("Return at the first verse uses the next verse when no previous reference exists", delegate {
+                var f = new Fixture(); var service = f.Service(); var item = service.ReadQueueBook(1).Single();
+                item.TargetReference = Fixture.MakeRef(1, 1); item.FirstVerse = 1;
+                service.BeginReturnToPassage(item); Check(f.LastNavigationReference.VerseNum == 2);
+                service.Navigate(item); Check(f.LastNavigationReference == item.TargetReference && f.Writes == 0 && f.Resolves == 0);
             });
             test("choose a later book, preserve drafts, resume and wrap to earlier books without writes", delegate {
                 var f = new Fixture(); var laterBook = new Fixture(); laterBook.Ref = Fixture.MakeRef(1, 3, 40);

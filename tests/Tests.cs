@@ -46,6 +46,8 @@ namespace NoteSuggestionsTests
         public IVerseRef LastNavigationReference, LastSyncReference;
         public IReadOnlyProject LastNavigationProject;
         public SyncReferenceGroup LastSyncGroup;
+        public SyncReferenceGroup EditorSyncGroup = SyncReferenceGroup.None;
+        public readonly List<IVerseRef> NavigationReferences = new List<IVerseRef>();
         public int SyncCalls;
         public List<IBookInfo> AvailableBooks = new List<IBookInfo> { Book(1, "GEN") };
         public static IBookInfo Book(int number, string code)
@@ -121,7 +123,7 @@ namespace NoteSuggestionsTests
                 }
             });
             State = Stub<IParatextChildState>.Create((m, a) => {
-                switch(m.Name) { case "get_Project": return Project; case "get_VerseRef": return MakeRef(1, ActiveVerse); case "get_SyncReferenceGroup": return SyncReferenceGroup.None; case "get_Selections": return Selections; default: throw new NotSupportedException(m.Name); }
+                switch(m.Name) { case "get_Project": return Project; case "get_VerseRef": return MakeRef(1, ActiveVerse); case "get_SyncReferenceGroup": return EditorSyncGroup; case "get_Selections": return Selections; default: throw new NotSupportedException(m.Name); }
             });
             Host = Stub<IPluginHost>.Create((m, a) => {
                 switch(m.Name) {
@@ -129,7 +131,7 @@ namespace NoteSuggestionsTests
                     case "get_ActiveWindowState": return State;
                     case "get_AllOpenWindows": return new[] { State };
                     case "get_ApplicationVersion": return new Version(9,5,110,1);
-                    case "OpenTextWindowFor": Navigations++; LastNavigationProject = (IReadOnlyProject)a[0]; LastNavigationReference = (IVerseRef)a[2]; return null;
+                    case "OpenTextWindowFor": Navigations++; LastNavigationProject = (IReadOnlyProject)a[0]; LastNavigationReference = (IVerseRef)a[2]; NavigationReferences.Add(LastNavigationReference); return null;
                     case "SetReferenceForSyncGroup": SyncCalls++; LastSyncReference = (IVerseRef)a[0]; LastSyncGroup = (SyncReferenceGroup)a[1]; return null;
                     default: throw new NotSupportedException("host."+m.Name);
                 }
@@ -146,7 +148,7 @@ namespace NoteSuggestionsTests
         public static IVerseRef MakeRef(int chapter, int verse, int book = 1)
         {
             return Stub<IVerseRef>.Create((m,a) => {
-                switch(m.Name) { case "get_BookNum": return book; case "get_BookCode": return book == 1 ? "GEN" : "MAT"; case "get_ChapterNum": return chapter; case "get_VerseNum": return verse; case "get_RepresentsMultipleVerses": return false; case "ToString": return (book == 1 ? "GEN" : "MAT") + " " + chapter + ":" + verse; default: throw new NotSupportedException(m.Name); }
+                switch(m.Name) { case "GetPreviousVerse": return MakeRef(chapter, Math.Max(1, verse - 1), book); case "GetNextVerse": return MakeRef(chapter, verse + 1, book); case "get_BookNum": return book; case "get_BookCode": return book == 1 ? "GEN" : "MAT"; case "get_ChapterNum": return chapter; case "get_VerseNum": return verse; case "get_RepresentsMultipleVerses": return false; case "ToString": return (book == 1 ? "GEN" : "MAT") + " " + chapter + ":" + verse; default: throw new NotSupportedException(m.Name); }
             });
         }
         public static IUSFMTextToken Text(string text, int chapter, int verse, bool scripture, bool note)
