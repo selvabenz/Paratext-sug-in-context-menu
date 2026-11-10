@@ -27,3 +27,9 @@ Before production use, validate the new entry point in a disposable Paratext pro
 10 November 2026: compiled successfully against the installed Paratext interfaces; **180 synthetic checks passed, zero failed**. The default-size bulk review dialog was rendered and inspected. Build log: `artifacts/selected-bulk-build.log`. Development plugin: `artifacts/bin/ParatextNoteSuggestions.ptxplg`. The suite required execution with atomic file replacement available in disposable workspace test output; the sandbox's denial of `File.Replace` caused the initial run to fail. Live-host, high-DPI, restart, export and Send/Receive acceptance for this new workflow remain pending.
 
 The persistent manual-review follow-up passed **184 synthetic checks, zero failed**. Additional checks cover saved reminders across reopen, draft/decision preservation, reopening outside the current filters, missing-source snapshots, reminder dismissal and retention of unattempted selections after uncertain saves. The manual-review dialog was rendered and inspected at its default size. Log: `artifacts/selected-bulk-install-build.log`; screenshot: `artifacts/bin/skipped-manual-review.png`.
+
+## Installation record
+
+10 November 2026: installed the tested build from feature commit `9e4562c` with Paratext closed, using the checksum-verified installer and its official plugin-cache update step. The previous plugin is backed up under ignored local staging at `artifacts/install-selected-bulk-9ab7cb9b926f434d9060e5d0bfe49f71/ParatextNoteSuggestions.previous.ptxplg`. The installed plugin's SHA-256 matches the tested build: `F1019F8CE4FF741DBB28157165468D9A74344FB3B894712A385DB7F6A578408F`.
+
+Installation did not open a project or apply Scripture corrections. Disposable-project live-host acceptance remains pending; installation and synthetic checks do not establish export or Send/Receive acceptance.
