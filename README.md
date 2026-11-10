@@ -31,6 +31,16 @@ Completed decisions now append an attributed reply, including the decision comme
 
 The compact **Review**, **Source discussion** and **Tools** tabs separate decisions, source evidence, navigation settings and reporting. See [the implementation plan and acceptance status](DECISION_COMMENTS_PLAN.md). Tracked in [GitHub issue #5](https://github.com/selvabenz/Paratext-sug-in-context-menu/issues/5).
 
+## Reviewed bulk Sandhi application (development build)
+
+**Tools > Bulk apply confirmed typos...** provides the same reviewed application and recovery safeguards for `Confirmed typo` proposals. `Possible typo` is excluded. Read the [confirmed-typo safety plan](CONFIRMED_TYPO_PLAN.md) for eligibility and release checks.
+
+Both correction previews stay open while you inspect Paratext. Use **Open selected verse in editor** to navigate to the highlighted proposal in the pinned project. The read-only before/after USFM and source discussion appear in the plugin window beside the editor. The installed Paratext API has no supported editor preview overlay; previewing never writes temporary Scripture. Nothing starts selected. Applying requires checked proposals, explicit approval and a decision comment; cancel changes no Scripture or notes. Edits made in Paratext while previewing are rechecked before application.
+
+In the queue's **Tools** tab, **Bulk apply Sandhi...** previews eligible `Sandhi / word-joining` corrections from the current filters. Review each before/after verse and source discussion, check the corrections to apply, and enter a decision comment. The separate **Bulk resolve...** action continues to make no Scripture edits.
+
+Each edit requires an exact, unambiguous Tamil body-text match and an unchanged approved preview. Ambiguous matches, formatting boundaries, reviewer-decision proposals and other pre-write refusals are logged and skipped while the batch continues. The final status shows resolved, not resolved, verified-edit, skipped and unattempted counts, including preview exclusions. Note-reply failures remain recoverable while other verified items continue. Uncertain Scripture writes or audit saves stop the batch for Recovery. A second edit in the same verse requires a fresh preview. Category labels do not guarantee linguistic correctness; a Tamil reviewer must approve the selected suggestions. There is no batch undo. See [the safety plan and release gate](SANDHI_BULK_PLAN.md). This development feature has not yet passed disposable-project host acceptance or been installed.
+
 ## Comment presets and session reports
 
 The queue offers five reusable decision phrases compiled from resolved-note themes with the user's approval. Selecting one fills the editable comment box; it does not apply/reject or change Scripture. The phrases cover accepted, accepted with revision, existing wording retained, meaning-sensitive rejection, and already corrected/no change. They are not presented as five repeated quotations from the user's account.

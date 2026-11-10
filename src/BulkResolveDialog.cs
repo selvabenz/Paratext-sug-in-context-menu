@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
@@ -14,34 +14,51 @@ namespace ParatextNoteSuggestions
         readonly CheckBox acknowledged = new CheckBox { Text = "I reviewed the selected proposals; no queue Scripture edit is needed.", AutoSize = true };
         public List<NoteCandidate> SelectedItems { get { return list.CheckedIndices.Cast<int>().Select(i => candidates[i]).ToList(); } }
         public string DecisionComment { get { return comment.Text; } }
-        public BulkResolveDialog(List<NoteCandidate> items)
+        public BulkResolveDialog(List<NoteCandidate> items, Dictionary<string, PassageEvidence> previews = null)
+            : this(items, previews, 0) { }
+        public BulkResolveDialog(List<NoteCandidate> items, Dictionary<string, PassageEvidence> previews, int skipped)
+            : this(items, previews, skipped, "Sandhi", null) { }
+        public BulkResolveDialog(List<NoteCandidate> items, Dictionary<string, PassageEvidence> previews, int skipped, string category, Action<NoteCandidate> navigate)
         {
             candidates = items;
-            Text = "Bulk review and resolve"; Font = new Font("Segoe UI", 10); AutoScaleMode = AutoScaleMode.Dpi;
+            bool sandhi = previews != null;
+            if (sandhi) acknowledged.Text = "I reviewed every selected before/after correction and approve these Scripture edits.";
+            Text = sandhi ? "Bulk apply " + category + " and resolve" : "Bulk review and resolve"; Font = new Font("Segoe UI", 10); AutoScaleMode = AutoScaleMode.Dpi;
             Size = new Size(760, 650); MinimumSize = new Size(600, 500); StartPosition = FormStartPosition.CenterParent;
             var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 7, Padding = new Padding(16) };
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 95)); root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            root.Controls.Add(new Label { Text = "Select reviewed proposals from the current filters. Comments go to Paratext notes.\r\nNo Scripture is changed. Threads resolve when every proposal has a decision.", AutoSize = true });
+            root.Controls.Add(new Label { Text = sandhi ? "Select reviewed " + category + " corrections. This changes Scripture one item at a time.\r\nRead-only preview beside the editor. Opening a verse does not change Scripture.\r\nChanged passages are skipped. An uncertain save stops the batch. No batch undo.\r\n" + skipped + " proposals skipped at preview; these remain unresolved and appear in the final totals." : "Select reviewed proposals from the current filters. Comments go to Paratext notes.\r\nNo Scripture is changed. Threads resolve when every proposal has a decision.", AutoSize = true });
             foreach (var item in candidates) list.Items.Add(item.DisplayReference + " | " + item.Proposal.Category + " | " + item.Proposal.Original + " → " + item.Proposal.Suggested);
             var preview = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Both, Dock = DockStyle.Fill };
             var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, Size = new Size(700, 280), SplitterDistance = 130 };
             split.Panel1.Controls.Add(list); split.Panel2.Controls.Add(preview); root.Controls.Add(split);
-            list.SelectedIndexChanged += delegate { preview.Text = list.SelectedIndex < 0 ? "" : candidates[list.SelectedIndex].NoteText; };
+            list.SelectedIndexChanged += delegate { preview.Text = list.SelectedIndex < 0 ? "" : (sandhi ? "BEFORE (USFM)\r\n" + previews[candidates[list.SelectedIndex].StableId].Before + "\r\n\r\nAFTER (USFM)\r\n" + previews[candidates[list.SelectedIndex].StableId].After + "\r\n\r\nSOURCE DISCUSSION\r\n" : "") + candidates[list.SelectedIndex].NoteText; };
             var selection = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill };
             var all = new Button { Text = "Select all", AutoSize = true }; var none = new Button { Text = "Clear selection", AutoSize = true };
             all.Click += delegate { for (int i = 0; i < list.Items.Count; i++) list.SetItemChecked(i, true); };
             none.Click += delegate { for (int i = 0; i < list.Items.Count; i++) list.SetItemChecked(i, false); };
             selection.Controls.Add(all); selection.Controls.Add(none); root.Controls.Add(selection);
+            if (navigate != null) {
+                var open = new Button { Name = "openInEditor", Text = "Open selected verse in editor", AutoSize = true };
+                open.Click += delegate {
+                    if (list.SelectedIndex < 0) return;
+                    try { navigate(candidates[list.SelectedIndex]); }
+                    catch (Exception ex) { MessageBox.Show(this, ex.Message, "Verse navigation failed", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+                };
+                selection.Controls.Add(open);
+            }
             root.Controls.Add(new Label { Text = "Required decision comment (saved separately on each selected proposal)", AutoSize = true }); root.Controls.Add(comment); root.Controls.Add(acknowledged);
             var footer = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill };
             var confirm = new Button { Text = "Save decisions and resolve", AutoSize = true, Enabled = false };
             var cancel = new Button { Text = "Cancel", AutoSize = true, DialogResult = DialogResult.Cancel };
-            Action update = delegate { confirm.Enabled = list.CheckedItems.Count > 0 && acknowledged.Checked && !String.IsNullOrWhiteSpace(comment.Text); confirm.Text = "Save " + list.CheckedItems.Count + " decisions and resolve"; };
+            cancel.Click += delegate { Close(); };
+            Action update = delegate { confirm.Enabled = list.CheckedItems.Count > 0 && acknowledged.Checked && !String.IsNullOrWhiteSpace(comment.Text); confirm.Text = (sandhi ? "Apply " : "Save ") + list.CheckedItems.Count + (sandhi ? " corrections and resolve" : " decisions and resolve"); };
             list.ItemCheck += delegate { BeginInvoke(update); }; comment.TextChanged += delegate { update(); }; acknowledged.CheckedChanged += delegate { update(); };
             confirm.Click += delegate { if (!confirm.Enabled) return; DialogResult = DialogResult.OK; Close(); };
             footer.Controls.Add(confirm); footer.Controls.Add(cancel); root.Controls.Add(footer); Controls.Add(root); CancelButton = cancel;
+            update();
         }
     }
 }

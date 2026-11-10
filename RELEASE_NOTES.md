@@ -7,6 +7,13 @@
 - Installed binary SHA-256: `D24717ABC33FF5A764532B1D9BA65C9D9F7E76F4A65FD89B2BC47C9F3BB15AFF`.
 - Send/Receive with a configured second test reviewer and the complete DPI/monitor matrix remain pending. Issue #5 remains open.
 
+# Local development update - 10 November 2026
+
+- Add **Tools > Bulk apply confirmed typos...** using the reviewed Sandhi exact-match, write-lock, saved-USFM verification and recovery flow. Possible typos remain excluded. See [the safety plan](CONFIRMED_TYPO_PLAN.md).
+- Keep Sandhi and confirmed-typo previews modeless, with read-only before/after USFM, source discussion and **Open selected verse in editor** navigation. Applying requires checked selections, approval and a decision comment. The installed public API has no supported preview overlay inside the Scripture editor.
+- Recheck Scripture editing permission under the write lock. Changed previews are skipped; uncertain saves stop the batch and prevent automatic replay.
+- Installed at the user's request with Paratext closed; the installed SHA-256 matches the tested build (`DA6BA0ED91944EE416CA43FCE33CDB0DF84180EA8B407DA6D0C85FEE078BA41F`). All **168 synthetic checks pass**. Live-host validation remains pending. No production Scripture or notes were edited during implementation or installation.
+
 # 0.3.0-preview.1
 
 Adds editable reusable comments and full session review reports.

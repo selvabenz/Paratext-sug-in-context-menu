@@ -290,6 +290,51 @@ namespace ParatextNoteSuggestions
             if (matches[0].CrossChapter) throw new InvalidOperationException("This preview does not apply cross-chapter or cross-book edits. Review the note in Paratext.");
             return matches[0];
         }
+        // Read-only preview; Apply revalidates again under the Scripture write lock.
+        public PassageEvidence PreviewBulkSandhi(NoteCandidate candidate)
+        { return PreviewBulkCorrection(candidate, "Sandhi / word-joining"); }
+        public PassageEvidence PreviewBulkConfirmedTypo(NoteCandidate candidate)
+        { return PreviewBulkCorrection(candidate, "Confirmed typo"); }
+        public PassageEvidence PreviewBulkCorrection(NoteCandidate candidate, string category)
+        {
+            CheckContext();
+            if (category != "Sandhi / word-joining" && category != "Confirmed typo")
+                throw new InvalidOperationException("Unsupported bulk correction category.");
+            var fresh = Fresh(candidate);
+            var p = fresh.Proposal;
+            if (p.Category != category || p.Route != ProposalRoute.Apply || p.Region != ContentRegion.Body ||
+                p.ReviewerDecision || p.AnchorWarning || fresh.FirstVerse != fresh.LastVerse || fresh.IsResolved ||
+                !TamilWords(p.Original) || !TamilWords(p.Suggested))
+                throw new InvalidOperationException("Bulk " + category + " requires a clear literal Tamil body-text correction in one verse, with no reviewer-decision or anchor warning. Review this proposal individually.");
+            if (!project.CanEdit(plugin, candidate.Book, candidate.Chapter)) throw new InvalidOperationException("Editing permission is unavailable.");
+            var tokens = project.GetUSFMTokens(candidate.Book, candidate.Chapter).ToList();
+            var match = ExactEditor.Locate(TokenMapping.Parts(tokens), ContentRegion.Body, candidate.Chapter, candidate.FirstVerse, candidate.LastVerse,
+                p.Original, p.Suggested, p.Original == fresh.AnchorText ? fresh.Before : "", p.Original == fresh.AnchorText ? fresh.After : "");
+            var old = tokens[match.TokenIndex] as IUSFMTextToken;
+            if (old == null || (match.Start > 0 && WordCharacter(old.Text, match.Start - 1)) ||
+                (match.Start + match.Length < old.Text.Length && WordCharacter(old.Text, match.Start + match.Length)))
+                throw new InvalidOperationException("Bulk corrections must match complete words; review this target individually.");
+            // A formatting boundary can split a word without putting whitespace in either token.
+            var body = TokenMapping.Parts(tokens).Where(t => t.Region == ContentRegion.Body && t.Chapter == candidate.Chapter && t.Verse == candidate.FirstVerse && t.Text.Length > 0).ToList();
+            var previous = body.LastOrDefault(t => t.TokenIndex < match.TokenIndex);
+            var next = body.FirstOrDefault(t => t.TokenIndex > match.TokenIndex);
+            if ((match.Start == 0 && previous != null && WordCharacter(previous.Text, previous.Text.Length - 1)) ||
+                (match.Start + match.Length == old.Text.Length && next != null && WordCharacter(next.Text, 0)))
+                throw new InvalidOperationException("A word may cross a formatting boundary; review this target individually.");
+            string before = Passage(tokens, candidate, ContentRegion.Body);
+            tokens[match.TokenIndex] = new ChangedTextToken(old, ExactEditor.Replace(old.Text, match));
+            return new PassageEvidence { Before = before, After = Passage(tokens, candidate, ContentRegion.Body), Scope = "Full anchored passage (USFM)" };
+        }
+        static bool TamilWords(string text)
+        {
+            return !String.IsNullOrWhiteSpace(text) && text == text.Trim() && text.Any(c => c >= '\u0b80' && c <= '\u0bff') &&
+                text.All(c => c == ' ' || (c >= '\u0b80' && c <= '\u0bff' && (Char.IsLetter(c) || Char.GetUnicodeCategory(c) == System.Globalization.UnicodeCategory.NonSpacingMark || Char.GetUnicodeCategory(c) == System.Globalization.UnicodeCategory.SpacingCombiningMark)));
+        }
+        static bool WordCharacter(string text, int index)
+        {
+            var kind = Char.GetUnicodeCategory(text, index);
+            return Char.IsLetterOrDigit(text, index) || kind == System.Globalization.UnicodeCategory.NonSpacingMark || kind == System.Globalization.UnicodeCategory.SpacingCombiningMark;
+        }
         public void Apply(NoteCandidate candidate, string original, string replacement, ContentRegion region, bool reviewed, bool explicitDeletion = false, Action beforeSubmit = null, Action<PassageEvidence> captureEvidence = null)
         {
             CheckContext();
@@ -309,6 +354,7 @@ namespace ParatextNoteSuggestions
             {
                 if (writeLock == null) throw new InvalidOperationException("Paratext could not grant a Scripture write lock. Try again when the passage is available.");
                 var fresh = Fresh(candidate);
+                if (!project.CanEdit(plugin, candidate.Book, scope)) throw new InvalidOperationException("Editing permission was withdrawn. No edit was submitted.");
                 if (!reviewed && (fresh.Proposal.Route != ProposalRoute.Apply || original != fresh.Proposal.Original || replacement != fresh.Proposal.Suggested || region != fresh.Proposal.Region))
                     throw new InvalidOperationException("This correction requires review before applying.");
                 var tokens = project.GetUSFMTokens(candidate.Book, scope).ToList();

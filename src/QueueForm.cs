@@ -46,7 +46,7 @@ namespace ParatextNoteSuggestions
         readonly CheckBox reviewed = new CheckBox { Text = "I reviewed this exact correction", AutoSize = true };
         readonly CheckBox deletion = new CheckBox { Text = "Explicitly delete the original text", AutoSize = true };
         readonly Button apply = Button("Apply + next"), reject = Button("Reject + next"), manual = Button("Completed manually / no change"), retry = Button("Verified no edit; allow retry"), pause = Button("Pause"), later = Button("Leave for later"), back = Button("Return to passage");
-        readonly Button bulk = Button("Bulk resolve...");
+        readonly Button bulk = Button("Bulk resolve..."), bulkSandhi = Button("Bulk apply Sandhi..."), bulkTypos = Button("Bulk apply confirmed typos...");
         readonly Button resolve = Button("Retry note resolution");
         NoteCandidate current;
         int position = -1, completed;
@@ -93,6 +93,8 @@ namespace ParatextNoteSuggestions
             filters.Click += delegate { Guard(delegate { using (var dialog = new QueueScopeDialog(owner, scope)) if (dialog.ShowDialog(this) == DialogResult.OK) ChangeScope(dialog.Selection()); }); };
             recovery.Click += delegate { Guard(delegate { ChangeScope(new QueueScope { RecoveryOnly = true, Status = NoteStatusFilter.All }); }); };
             bulk.Click += delegate { Guard(BulkResolve); };
+            bulkSandhi.Click += delegate { Guard(BulkSandhi); };
+            bulkTypos.Click += delegate { Guard(BulkConfirmedTypos); };
             previous.Click += delegate { Guard(delegate { Browse(-1); }); }; next.Click += delegate { Guard(delegate { Browse(1); }); };
             var fields = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, AutoScroll = true, Padding = new Padding(2) };
             fields.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 105));
@@ -119,7 +121,7 @@ namespace ParatextNoteSuggestions
             var groupPicker = new FlowLayoutPanel { AutoSize = true };
             groupPicker.Controls.Add(new Label { Text = "Scroll group", AutoSize = true, Padding = new Padding(0, 6, 0, 0) }); groupPicker.Controls.Add(syncGroup);
             tools.Controls.Add(groupPicker); tools.Controls.Add(navigationLabel);
-            foreach (var b in new[] { retry, resolve, later, viewReport, reportFolder }) tools.Controls.Add(b);
+            foreach (var b in new[] { bulkSandhi, bulkTypos, retry, resolve, later, viewReport, reportFolder }) tools.Controls.Add(b);
             var export = Button("Export decisions..."); tools.Controls.Add(export);
             var toolsTab = new TabPage("Tools"); toolsTab.Controls.Add(tools); tabs.TabPages.Add(toolsTab);
             var actions = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Dock = DockStyle.Fill, WrapContents = true, Margin = new Padding(0, 3, 0, 0) };
@@ -444,6 +446,8 @@ namespace ParatextNoteSuggestions
             previous.Enabled = !busy && !indexing && items.Count > 0 && (current == null || position > 0);
             next.Enabled = !busy && !indexing && position >= 0 && position < items.Count - 1;
             bulk.Enabled = !busy && !indexing && !paused && !scope.RecoveryOnly && items.Any(c => !c.IsResolved && !c.Unreadable && !duplicateIds.Contains(c.StableId) && (progress.Get(c.StableId) == null || (!progress.Get(c.StableId).Completed && progress.Get(c.StableId).Outcome != "Pending apply")));
+            bulkSandhi.Enabled = bulk.Enabled;
+            bulkTypos.Enabled = bulk.Enabled;
             filters.Enabled = recovery.Enabled = syncGroup.Enabled = !busy;
             viewReport.Enabled = reportFolder.Enabled = !busy;
             commentPreset.Enabled = editable && !decisionSaved;
@@ -541,6 +545,125 @@ namespace ParatextNoteSuggestions
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
                 RunBulk(dialog.SelectedItems, dialog.DecisionComment);
             }
+        }
+        void BulkSandhi()
+        { BulkCorrections("Sandhi / word-joining", "Sandhi"); }
+        void BulkConfirmedTypos()
+        { BulkCorrections("Confirmed typo", "confirmed typos"); }
+        void BulkCorrections(string category, string label)
+        {
+            if (busy || paused || indexing || scope.RecoveryOnly) return;
+            SaveDraft();
+            var previews = new Dictionary<string, PassageEvidence>();
+            var eligible = new List<NoteCandidate>(); var skipped = new List<string>();
+            foreach (var item in items.Where(c => c.Proposal.Category == category && !c.IsResolved))
+            {
+                var prior = progress.Get(item.StableId);
+                if (prior != null && prior.Completed) continue;
+                status.Text = "Checking " + label + " - " + item.DisplayReference + "; " + eligible.Count + " eligible, " + skipped.Count + " skipped."; status.Refresh();
+                try {
+                    if (duplicateIds.Contains(item.StableId)) throw new InvalidOperationException("Duplicate proposal identity; review individually.");
+                    if (prior != null && prior.Outcome == "Pending apply") throw new InvalidOperationException("Interrupted apply requires Recovery.");
+                    previews.Add(item.StableId, owner.ForQueueItem(item).PreviewBulkCorrection(item, category)); eligible.Add(item);
+                }
+                catch (Exception ex) {
+                    string detail = item.DisplayReference + ": " + ex.Message;
+                    skipped.Add(detail); session.AddWarning("Bulk " + label + " skipped at preview: " + detail);
+                    status.Text = "Skipped " + detail + " Continuing to next proposal."; status.Refresh();
+                }
+            }
+            if (eligible.Count == 0) {
+                string summary = "Bulk " + label + " complete: 0 resolved; " + skipped.Count + " not resolved (skipped). No Scripture edits.";
+                session.AddWarning(summary); status.Text = summary + " Details saved in the session log."; return;
+            }
+            ShowCorrectionPreview(eligible, previews, skipped.Count, category, label);
+        }
+        void ShowCorrectionPreview(List<NoteCandidate> eligible, Dictionary<string, PassageEvidence> previews, int skipped, string category, string label)
+        {
+            // Modeless so the reviewer can read the actual Paratext editor while the preview is open.
+            // Freeze queue actions until it closes; navigation itself never writes Scripture.
+            var dialog = new BulkResolveDialog(eligible, previews, skipped, label, owner.Navigate);
+            busy = true; EnableActions();
+            dialog.FormClosed += delegate {
+                var selected = dialog.SelectedItems; string decision = dialog.DecisionComment;
+                bool approved = dialog.DialogResult == DialogResult.OK;
+                busy = false;
+                if (IsDisposed || Disposing) return;
+                EnableActions();
+                if (approved) Guard(delegate { RunCorrectionBatch(selected, decision, previews, skipped, category, label); });
+            };
+            try { dialog.Show(this); }
+            catch { busy = false; dialog.Dispose(); EnableActions(); throw; }
+        }
+        void RunBulkSandhi(List<NoteCandidate> selectedItems, string decisionComment, Dictionary<string, PassageEvidence> previews)
+        { RunSandhiBatch(selectedItems, decisionComment, previews, 0); }
+        void RunSandhiBatch(List<NoteCandidate> selectedItems, string decisionComment, Dictionary<string, PassageEvidence> previews, int previewSkipped)
+        { RunCorrectionBatch(selectedItems, decisionComment, previews, previewSkipped, "Sandhi / word-joining", "Sandhi"); }
+        void RunBulkConfirmedTypos(List<NoteCandidate> selectedItems, string decisionComment, Dictionary<string, PassageEvidence> previews)
+        { RunCorrectionBatch(selectedItems, decisionComment, previews, 0, "Confirmed typo", "confirmed typos"); }
+        void RunCorrectionBatch(List<NoteCandidate> selectedItems, string decisionComment, Dictionary<string, PassageEvidence> previews, int previewSkipped, string category, string label)
+        {
+            if (busy || paused || indexing || scope.RecoveryOnly || String.IsNullOrWhiteSpace(decisionComment)) return;
+            busy = true; EnableActions(); int applied = 0, processed = 0, skipped = 0; bool stopped = false;
+            try
+            {
+                foreach (var item in selectedItems)
+                {
+                    bool submitted = false, decisionDurable = false;
+                    try
+                    {
+                        status.Text = "Applying " + label + " " + (++processed) + " / " + selectedItems.Count + " - " + item.DisplayReference; status.Refresh();
+                        var prior = progress.Get(item.StableId);
+                        if (!items.Contains(item) || duplicateIds.Contains(item.StableId) || (prior != null && (prior.Completed || prior.Outcome == "Pending apply")))
+                            throw new InvalidOperationException("Target is unavailable, ambiguous, or already decided; use Recovery if needed.");
+                        PassageEvidence preview;
+                        if (!previews.TryGetValue(item.StableId, out preview)) throw new InvalidOperationException("A reviewed preview is required.");
+                        var service = owner.ForQueueItem(item);
+                        var now = service.PreviewBulkCorrection(item, category);
+                        if (now.Before != preview.Before || now.After != preview.After) throw new InvalidOperationException("Passage changed since preview; review again.");
+                        var record = new ReviewRecord { Id = item.StableId, Outcome = "Applied", Reference = item.DisplayReference,
+                            Category = item.Proposal.Category, Original = item.Proposal.Original, Replacement = item.Proposal.Suggested,
+                            Comment = decisionComment.Trim(), Region = "Body", Discussion = item.DiscussionKey,
+                            SessionId = session.Id, AuditId = Guid.NewGuid().ToString("N"), Reviewer = owner.Reviewer, Actor = owner.Reviewer,
+                            DecisionUtc = DateTime.UtcNow.ToString("O"), ActionUtc = DateTime.UtcNow.ToString("O"), Resolution = "Pending",
+                            QueueScope = scope.Describe(owner.QueueBookCode), SourceNote = item.NoteText };
+                        service.Apply(item, record.Original, record.Replacement, ContentRegion.Body, false, false, delegate {
+                            if (owner.Reviewer != record.Reviewer) throw new InvalidOperationException("Paratext user changed; review again.");
+                            var intent = ReviewRecord.FromXml(record.ToXml()); intent.Outcome = "Pending apply";
+                            progress.Save(intent); submitted = true; session.Track(intent);
+                        }, delegate(PassageEvidence evidence) {
+                            if (evidence.Before != preview.Before || evidence.After != preview.After) throw new InvalidOperationException("Passage changed under lock; no edit submitted.");
+                            record.BeforeContext = evidence.Before; record.AfterContext = evidence.After; record.ContextScope = evidence.Scope;
+                            record.Evidence = "Expected bulk " + label + " result captured; saved USFM not yet verified.";
+                        });
+                        applied++;
+                        record.Evidence = "Verified saved USFM after reviewed bulk " + label + " correction. Scripture write by Paratext user: " + record.Reviewer;
+                        progress.Save(record); session.Track(record); decisionDurable = true; completed++;
+                        FinishRecord(item);
+                    }
+                    catch (Exception ex)
+                    {
+                        string detail = item.DisplayReference + ": " + ex.Message;
+                        session.AddWarning("Bulk " + label + " item failed: " + detail);
+                        status.Text = detail + " Continuing to next proposal."; status.Refresh();
+                        if (submitted && !decisionDurable) {
+                            stopped = true;
+                            session.AddWarning("Bulk " + label + " stopped after an uncertain save/audit. Remaining selections were not attempted; inspect Recovery.");
+                            break;
+                        }
+                        if (!submitted) skipped++;
+                    }
+                }
+                int resolved = selectedItems.Count(c => { var r = progress.Get(c.StableId); return r != null && r.Resolution == "Resolved"; });
+                int notResolved = selectedItems.Count - resolved + previewSkipped;
+                string summary = "Bulk " + label + " " + (stopped ? "stopped" : "complete") + ": " + resolved + " resolved; " + notResolved + " not resolved. " +
+                    applied + " Scripture corrections verified; " + (previewSkipped + skipped) + " skipped; " + (selectedItems.Count - processed) + " not attempted.";
+                session.AddWarning(summary);
+                recovery.Text = "Recovery (" + progress.Outstanding().Count() + ")";
+                UpdateScopeLabel(); position = -1; Next();
+                status.Text = summary + " " + progress.Outstanding().Count() + " pending recovery. Details saved in the session log/report. Unselected eligible proposals are outside these totals.";
+            }
+            finally { busy = false; EnableActions(); }
         }
         void RunBulk(List<NoteCandidate> selectedItems, string decisionComment)
         {
