@@ -43,6 +43,169 @@ namespace NoteSuggestionsTests
         { return items.ToDictionary(c => c.StableId, c => f.Service().ForQueueItem(c).PreviewBulkSandhi(c)); }
         public static void Run(Action<string, Action> test)
         {
+            test("skipped proposal reminders survive reopen and never overwrite drafts or decisions", delegate {
+                var f = Sandhi(); var c = f.Service().ReadQueueBook(1).Single(); string root = Root();
+                using (var p = new ReviewProgress(root, f.ProjectId)) {
+                    p.Save(new ReviewRecord { Id = c.StableId, Outcome = "Draft", Comment = "Keep my draft" });
+                    p.SaveSkipped(c, "Ambiguous exact target");
+                    Check(p.Get(c.StableId).Comment == "Keep my draft" && p.Skipped().Single().Evidence == "Ambiguous exact target");
+                }
+                using (var p = new ReviewProgress(root, f.ProjectId)) {
+                    Check(p.Skipped().Single().SourceNote == c.NoteText);
+                    p.DismissSkipped(c.StableId); Check(p.Skipped().Count == 0 && p.Get(c.StableId).Outcome == "Draft");
+                    p.SaveSkipped(c, "Still ambiguous"); Check(p.Skipped().Count == 1);
+                    p.Save(new ReviewRecord { Id = c.StableId, Outcome = "Completed manually", Resolution = "Pending" });
+                    Check(p.Skipped().Count == 0 && p.Outstanding().Count() == 1);
+                }
+                Check(f.Writes == 0 && f.Replies.Count == 0 && !f.Resolved);
+            });
+            test("preflight skip is visible in manual review and opens across filters", delegate {
+                var f = Sandhi(); f.NoteText = Fixture.Qa("Sandhi / word-joining", f.AnchorText, f.AnchorText + f.AnchorText, "Yes");
+                using (var q = Queue(f, Root())) {
+                    Call(q, "BulkSandhi");
+                    var p = Field<ReviewProgress>(q, "progress"); var skipped = p.Skipped().Single();
+                    Check(Field<Button>(q, "skippedReview").Text == "Manual review (1)" && skipped.Evidence.Length > 0);
+                    Scope(q, new QueueScope { Category = "Grammar" });
+                    Check(Field<System.Collections.Generic.List<NoteCandidate>>(q, "items").Count == 0);
+                    Call(q, "OpenSkippedReview", skipped.Id);
+                    while (Field<bool>(q, "indexing")) Call(q, "IndexBook");
+                    Check(Field<NoteCandidate>(q, "current").StableId == skipped.Id && Field<Label>(q, "status").Text.Contains("Saved bulk skip"));
+                    Check(f.Writes == 0 && f.Replies.Count == 0); q.Close();
+                }
+            });
+            test("manual list retains missing source snapshots without editing a replacement proposal", delegate {
+                var f = Sandhi(); using (var q = Queue(f, Root())) {
+                    var c = Field<System.Collections.Generic.List<NoteCandidate>>(q, "items").Single();
+                    Call(q, "RememberSkipped", c, "Exact target missing"); f.NoteText += " Changed source";
+                    Call(q, "OpenSkippedReview", c.StableId);
+                    while (Field<bool>(q, "indexing")) Call(q, "IndexBook");
+                    Check(Field<Label>(q, "status").Text.Contains("source changed or is unavailable"));
+                    Check(Field<ReviewProgress>(q, "progress").Skipped().Single().SourceNote == c.NoteText && f.Writes == 0); q.Close();
+                }
+            });
+            test("skipped dialog shows reason and source and removing a reminder changes no note", delegate {
+                var f = Sandhi(); var c = f.Service().ReadQueueBook(1).Single();
+                using (var p = new ReviewProgress(Root(), f.ProjectId)) {
+                    p.SaveSkipped(c, "Ambiguous target; inspect manually");
+                    var type = typeof(QueueForm).Assembly.GetType("ParatextNoteSuggestions.SkippedReviewDialog");
+                    using (var dialog = (Form)Activator.CreateInstance(type, new object[] { p.Skipped(), new Action<string>(p.DismissSkipped) })) {
+                        dialog.Show(); Application.DoEvents();
+                        Check(Field<TextBox>(dialog, "detail").Text.Contains(c.NoteText) && Field<TextBox>(dialog, "detail").Text.Contains("Ambiguous target"));
+                        using (var bitmap = new System.Drawing.Bitmap(dialog.Width, dialog.Height)) {
+                            dialog.DrawToBitmap(bitmap, new System.Drawing.Rectangle(0, 0, dialog.Width, dialog.Height));
+                            bitmap.Save(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "skipped-manual-review.png"));
+                        }
+                        Descendants(dialog).OfType<Button>().Single(b => b.Name == "dismissSkipped").PerformClick();
+                        Check(p.Skipped().Count == 0 && !Descendants(dialog).OfType<Button>().Single(b => b.Name == "reviewSkipped").Enabled);
+                        Check(f.Writes == 0 && f.Replies.Count == 0 && !f.Resolved); dialog.Close();
+                    }
+                }
+            });
+            foreach (string category in new[] { "Sandhi / word-joining", "Confirmed typo", "Possible typo", "Plural agreement", "Punctuation", "Grammar" }) {
+                string captured = category;
+                test("selected reviewed bulk applies and resolves " + captured, delegate {
+                    var f = Sandhi(); f.NoteText = f.NoteText.Replace("Sandhi / word-joining", captured).Replace("needed: No", "needed: Yes");
+                    using (var q = Queue(f, Root())) {
+                        var selected = Field<System.Collections.Generic.List<NoteCandidate>>(q, "items").ToList();
+                        var previews = selected.ToDictionary(c => c.StableId, c => f.Service().ForQueueItem(c).PreviewBulkCorrection(c, captured, true));
+                        Check(f.Writes == 0);
+                        Call(q, "RunCorrectionBatch", selected, "Reviewed in context", previews, 0, null, "selected corrections");
+                        var record = Field<ReviewProgress>(q, "progress").Get(selected[0].StableId);
+                        Check(f.Writes == 1 && f.Resolved && f.Replies.Count == 1 && record.Category == captured && record.BeforeContext == previews[selected[0].StableId].Before);
+                        Call(q, "RunCorrectionBatch", selected, "Reviewed again", previews, 0, null, "selected corrections");
+                        Check(f.Writes == 1); q.Close();
+                    }
+                });
+            }
+            test("mixed selected categories resolve independently and uncertain saves stop the batch", delegate {
+                foreach (bool uncertain in new[] { false, true }) {
+                    var f = Sandhi(); f.NoteText = f.NoteText.Replace("Sandhi / word-joining", "Possible typo"); f.IgnorePut = uncertain;
+                    var second = Sandhi(); second.Ref = Fixture.MakeRef(1, 4); second.NoteText = second.NoteText.Replace("Sandhi / word-joining", "Grammar");
+                    second.LockHeld = second.NotesLockHeld = true; f.Notes.Add(second.Notes[0]);
+                    f.Tokens.Add(Fixture.Marker("v", "4", 1, 4, Paratext.PluginInterfaces.MarkerType.Verse));
+                    f.Tokens.Add(Fixture.Text(f.AnchorText, 1, 4, true, false));
+                    using (var q = Queue(f, Root())) {
+                        var selected = Field<System.Collections.Generic.List<NoteCandidate>>(q, "items").ToList();
+                        var previews = selected.ToDictionary(c => c.StableId, c => f.Service().ForQueueItem(c).PreviewBulkCorrection(c, c.Proposal.Category, true));
+                        Call(q, "RunCorrectionBatch", selected, "Reviewed mixed categories", previews, 0, null, "selected corrections");
+                        Check(f.Writes == (uncertain ? 1 : 2) && f.Resolved == !uncertain && second.Resolved == !uncertain);
+                        if (uncertain) Check(Field<Label>(q, "status").Text.Contains("1 not attempted") && Field<ReviewProgress>(q, "progress").Skipped().Single().Id == selected[1].StableId);
+                        q.Close();
+                    }
+                }
+            });
+            test("selected punctuation supports contextual and standalone punctuation edits", delegate {
+                foreach (bool standalone in new[] { false, true }) {
+                    var f = Sandhi(); string word = f.AnchorText;
+                    f.NoteText = Fixture.Qa("Punctuation", standalone ? "," : word + ",", standalone ? ";" : word + ";", "Yes");
+                    f.Tokens[1] = Fixture.Text(word + ",", 1, 3, true, false);
+                    using (var q = Queue(f, Root())) {
+                        var selected = Field<System.Collections.Generic.List<NoteCandidate>>(q, "items").ToList();
+                        var previews = selected.ToDictionary(c => c.StableId, c => f.Service().ForQueueItem(c).PreviewBulkCorrection(c, "Punctuation", true));
+                        Call(q, "RunCorrectionBatch", selected, "Reviewed punctuation", previews, 0, null, "selected corrections");
+                        Check(f.Writes == 1 && f.Resolved && f.Tokens.OfType<Paratext.PluginInterfaces.IUSFMTextToken>().Any(t => t.Text == word + ";")); q.Close();
+                    }
+                }
+            });
+            test("selected reviewed bulk refuses unsafe proposals without writing", delegate {
+                foreach (string kind in new[] { "category", "alternative", "duplicate", "instruction", "empty", "marker", "partial", "ambiguous", "heading", "competing" }) {
+                    var f = Sandhi(); string old = f.AnchorText, replacement = f.Service().ReadCandidates()[0].Proposal.Suggested;
+                    f.NoteText = Fixture.Qa(kind == "category" ? "Source comparison" : "Possible typo", old, replacement, "Yes");
+                    if (kind == "alternative") f.NoteText = Fixture.Qa("Possible typo", old, replacement + " / " + old, "Yes");
+                    if (kind == "duplicate") f.NoteText += "\nSuggested: " + old;
+                    if (kind == "instruction") f.NoteText = Fixture.Qa("Grammar", old, "replace " + replacement, "Yes");
+                    if (kind == "empty") f.NoteText = Fixture.Qa("Grammar", old, "", "Yes");
+                    if (kind == "marker") f.NoteText = Fixture.Qa("Grammar", old, "\\p " + replacement, "Yes");
+                    if (kind == "partial") f.Tokens[1] = Fixture.Text("X" + old, 1, 3, true, false);
+                    if (kind == "ambiguous") { f.AnchorText = ""; f.Tokens[1] = Fixture.Text(old + " " + old, 1, 3, true, false); }
+                    if (kind == "heading") f.Tokens[1] = Fixture.Text(old, 1, 3, false, false);
+                    if (kind == "competing") { var second = Sandhi(); second.NoteText = Fixture.Qa("Grammar", old, replacement + replacement, "Yes"); f.Notes.Add(second.Notes[0]); }
+                    var c = f.Service().ReadQueueBook(1).First(); bool refused = false;
+                    try { f.Service().ForQueueItem(c).PreviewBulkCorrection(c, c.Proposal.Category, true); } catch (InvalidOperationException) { refused = true; }
+                    Check(refused && f.Writes == 0 && f.Replies.Count == 0 && !f.Resolved);
+                }
+            });
+            test("selected possible typo rechecks approved text and permission under lock", delegate {
+                foreach (string change in new[] { "text", "source", "lockText", "lockPermission" }) {
+                    var f = Sandhi(); f.NoteText = f.NoteText.Replace("Sandhi / word-joining", "Possible typo");
+                    using (var q = Queue(f, Root())) {
+                        var selected = Field<System.Collections.Generic.List<NoteCandidate>>(q, "items").ToList();
+                        var previews = selected.ToDictionary(c => c.StableId, c => f.Service().ForQueueItem(c).PreviewBulkCorrection(c, "Possible typo", true));
+                        if (change == "text") f.Tokens[1] = Fixture.Text("X " + f.AnchorText, 1, 3, true, false);
+                        if (change == "source") f.NoteText += " Changed source";
+                        if (change == "lockText") f.OnHistory = delegate { f.Tokens[1] = Fixture.Text("X " + f.AnchorText, 1, 3, true, false); };
+                        if (change == "lockPermission") f.OnHistory = delegate { f.Editable = false; };
+                        Call(q, "RunCorrectionBatch", selected, "Reviewed", previews, 0, null, "selected corrections");
+                        Check(f.Writes == 0 && !f.Resolved && f.Replies.Count == 0); q.Close();
+                    }
+                }
+            });
+            test("selected correction preview limits edits to selection and cancel writes nothing", delegate {
+                var f = Sandhi(); var second = Typo(); second.Ref = Fixture.MakeRef(1, 4); f.Notes.Add(second.Notes[0]);
+                using (var q = Queue(f, Root())) {
+                    q.Show(); Application.DoEvents();
+                    var selected = Field<System.Collections.Generic.List<NoteCandidate>>(q, "items").Where(c => c.Proposal.Category == "Sandhi / word-joining").ToList();
+                    Call(q, "PreviewSelectedCorrections", selected, "Carried comment"); Application.DoEvents();
+                    var dialog = q.OwnedForms.Single();
+                    Check(Field<CheckedListBox>(dialog, "list").Items.Count == 1 && Field<CheckedListBox>(dialog, "list").CheckedItems.Count == 0 && Field<TextBox>(dialog, "comment").Text == "Carried comment");
+                    Descendants(dialog).OfType<Button>().Single(b => b.Text == "Cancel").PerformClick(); Application.DoEvents();
+                    Check(f.Writes == 0 && f.Replies.Count == 0 && !f.Resolved && !second.Resolved && !Field<bool>(q, "busy")); q.Close();
+                }
+            });
+            test("bulk review offers preview without granting Scripture approval", delegate {
+                var f = Sandhi(); var type = typeof(QueueForm).Assembly.GetType("ParatextNoteSuggestions.BulkResolveDialog");
+                using (var dialog = (Form)Activator.CreateInstance(type, new object[] { f.Service().ReadQueueBook(1), null })) {
+                    dialog.Show(); Application.DoEvents();
+                    var edit = Descendants(dialog).OfType<Button>().Single(b => b.Name == "previewScriptureEdits"); Check(!edit.Enabled);
+                    Field<CheckedListBox>(dialog, "list").SetItemChecked(0, true); Application.DoEvents(); Check(!edit.Enabled);
+                    Field<TextBox>(dialog, "comment").Text = "Review this correction"; Check(edit.Enabled && !Field<CheckBox>(dialog, "acknowledged").Checked);
+                    using (var bitmap = new System.Drawing.Bitmap(dialog.Width, dialog.Height)) {
+                        dialog.DrawToBitmap(bitmap, new System.Drawing.Rectangle(0, 0, dialog.Width, dialog.Height));
+                        bitmap.Save(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "selected-bulk-review.png"));
+                    }
+                    edit.PerformClick(); Check((bool)type.GetProperty("PreviewScriptureEdits").GetValue(dialog, null) && f.Writes == 0 && f.Replies.Count == 0);
+                }
+            });
             test("confirmed typo exact reviewed batch persists evidence and never replays", delegate {
                 var f = Typo(); using (var q = Queue(f, Root())) {
                     var selected = Field<System.Collections.Generic.List<NoteCandidate>>(q, "items").ToList(); var previews = TypoPreviews(f, selected);

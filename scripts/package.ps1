@@ -8,7 +8,7 @@ $releaseDir = Join-Path $projectRoot ("artifacts\release\stage-" + [Guid]::NewGu
 New-Item -ItemType Directory -Path $releaseDir -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $projectRoot 'artifacts\bin\ParatextNoteSuggestions.ptxplg') -Destination $releaseDir -Force
 foreach ($name in @('install.ps1','uninstall.ps1')) { Copy-Item -LiteralPath (Join-Path $projectRoot ("packaging\" + $name)) -Destination $releaseDir -Force }
-foreach ($name in @('LICENSE','README.md','INSTALL.md','DEVELOPER_HANDOFF.md','RELEASE_NOTES.md','VALIDATION.md','CATEGORY_HANDLING.md','PLAN.md','ISSUES_1_4.md','DECISION_COMMENTS_PLAN.md','SANDHI_BULK_PLAN.md','CONFIRMED_TYPO_PLAN.md')) { Copy-Item -LiteralPath (Join-Path $projectRoot $name) -Destination $releaseDir -Force }
+foreach ($name in @('LICENSE','README.md','INSTALL.md','DEVELOPER_HANDOFF.md','RELEASE_NOTES.md','VALIDATION.md','CATEGORY_HANDLING.md','PLAN.md','ISSUES_1_4.md','DECISION_COMMENTS_PLAN.md','SANDHI_BULK_PLAN.md','CONFIRMED_TYPO_PLAN.md','SELECTED_BULK_PLAN.md')) { Copy-Item -LiteralPath (Join-Path $projectRoot $name) -Destination $releaseDir -Force }
 $checksums = @(Get-ChildItem -LiteralPath $releaseDir -File | Where-Object Name -ne 'SHA256SUMS.txt' | Sort-Object Name | ForEach-Object { "{0}  {1}" -f (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant(), $_.Name })
 [IO.File]::WriteAllLines((Join-Path $releaseDir 'SHA256SUMS.txt'), $checksums, [Text.Encoding]::ASCII)
 $zipFile = Join-Path (Split-Path -Parent $releaseDir) ("ParatextNoteSuggestions-" + $Version + '.zip')

@@ -47,6 +47,8 @@ namespace ParatextNoteSuggestions
         readonly CheckBox deletion = new CheckBox { Text = "Explicitly delete the original text", AutoSize = true };
         readonly Button apply = Button("Apply + next"), reject = Button("Reject + next"), manual = Button("Completed manually / no change"), retry = Button("Verified no edit; allow retry"), pause = Button("Pause"), later = Button("Leave for later"), back = Button("Return to passage");
         readonly Button bulk = Button("Bulk resolve..."), bulkSandhi = Button("Bulk apply Sandhi..."), bulkTypos = Button("Bulk apply confirmed typos...");
+        readonly Button skippedReview = Button("Manual review (0)");
+        string requestedManualId;
         readonly Button resolve = Button("Retry note resolution");
         NoteCandidate current;
         int position = -1, completed;
@@ -93,6 +95,7 @@ namespace ParatextNoteSuggestions
             filters.Click += delegate { Guard(delegate { using (var dialog = new QueueScopeDialog(owner, scope)) if (dialog.ShowDialog(this) == DialogResult.OK) ChangeScope(dialog.Selection()); }); };
             recovery.Click += delegate { Guard(delegate { ChangeScope(new QueueScope { RecoveryOnly = true, Status = NoteStatusFilter.All }); }); };
             bulk.Click += delegate { Guard(BulkResolve); };
+            skippedReview.Click += delegate { Guard(ShowSkippedReview); };
             bulkSandhi.Click += delegate { Guard(BulkSandhi); };
             bulkTypos.Click += delegate { Guard(BulkConfirmedTypos); };
             previous.Click += delegate { Guard(delegate { Browse(-1); }); }; next.Click += delegate { Guard(delegate { Browse(1); }); };
@@ -121,7 +124,7 @@ namespace ParatextNoteSuggestions
             var groupPicker = new FlowLayoutPanel { AutoSize = true };
             groupPicker.Controls.Add(new Label { Text = "Scroll group", AutoSize = true, Padding = new Padding(0, 6, 0, 0) }); groupPicker.Controls.Add(syncGroup);
             tools.Controls.Add(groupPicker); tools.Controls.Add(navigationLabel);
-            foreach (var b in new[] { bulkSandhi, bulkTypos, retry, resolve, later, viewReport, reportFolder }) tools.Controls.Add(b);
+            foreach (var b in new[] { bulkSandhi, bulkTypos, skippedReview, retry, resolve, later, viewReport, reportFolder }) tools.Controls.Add(b);
             var export = Button("Export decisions..."); tools.Controls.Add(export);
             var toolsTab = new TabPage("Tools"); toolsTab.Controls.Add(tools); tabs.TabPages.Add(toolsTab);
             var actions = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Dock = DockStyle.Fill, WrapContents = true, Margin = new Padding(0, 3, 0, 0) };
@@ -326,6 +329,14 @@ namespace ParatextNoteSuggestions
             SortItems();
             completed = items.Count(c => { var r = progress.Get(c.StableId); return r != null && r.Completed; });
             UpdateScopeLabel();
+            if (requestedManualId != null) {
+                string requested = requestedManualId; requestedManualId = null;
+                int target = items.FindIndex(c => c.StableId == requested);
+                if (target >= 0) { position = target; LoadCurrent(); return; }
+                Next();
+                status.Text = "The skipped proposal's source changed or is unavailable. Its saved discussion and reason remain in Manual review; inspect the original note in Paratext.";
+                return;
+            }
             var cursor = progress.Cursor(scope);
             int resume = cursor == null ? -1 : items.FindIndex(c => c.StableId == cursor.Id);
             var record = cursor == null ? null : progress.Get(cursor.Id);
@@ -408,6 +419,8 @@ namespace ParatextNoteSuggestions
             if (current.Unreadable) status.Text = "Paratext cannot read this discussion. Decisions are blocked for this note; inspect/fix it in Paratext or Leave for later. Other notes can continue.";
             if (previous != null && previous.Completed) source.Text += "\r\n\r\nSAVED LOCAL DECISION: " + previous.Outcome + "\r\n" + previous.Comment + "\r\n" + previous.Evidence + "\r\nBefore:\r\n" + previous.BeforeContext + "\r\nAfter:\r\n" + previous.AfterContext;
             if (current.IsResolved && !ResolutionPending()) status.Text = "Paratext resolved note - inspection only. Navigation never repeats its decision or Scripture edit.";
+            var skipped = progress.Skipped().FirstOrDefault(r => r.Id == current.StableId);
+            if (skipped != null) status.Text += "\r\nSaved bulk skip: " + skipped.Evidence;
             SaveDraft(); EnableActions();
             NavigateCurrent();
         }
@@ -448,6 +461,8 @@ namespace ParatextNoteSuggestions
             bulk.Enabled = !busy && !indexing && !paused && !scope.RecoveryOnly && items.Any(c => !c.IsResolved && !c.Unreadable && !duplicateIds.Contains(c.StableId) && (progress.Get(c.StableId) == null || (!progress.Get(c.StableId).Completed && progress.Get(c.StableId).Outcome != "Pending apply")));
             bulkSandhi.Enabled = bulk.Enabled;
             bulkTypos.Enabled = bulk.Enabled;
+            skippedReview.Enabled = !busy && !indexing;
+            skippedReview.Text = "Manual review (" + progress.Skipped().Count + ")";
             filters.Enabled = recovery.Enabled = syncGroup.Enabled = !busy;
             viewReport.Enabled = reportFolder.Enabled = !busy;
             commentPreset.Enabled = editable && !decisionSaved;
@@ -537,14 +552,58 @@ namespace ParatextNoteSuggestions
         }
         void BulkResolve()
         {
+            if (busy || paused || indexing || scope.RecoveryOnly) return;
             SaveDraft();
             var candidates = items.Where(c => !c.IsResolved && !c.Unreadable && !duplicateIds.Contains(c.StableId) &&
                 (progress.Get(c.StableId) == null || (!progress.Get(c.StableId).Completed && progress.Get(c.StableId).Outcome != "Pending apply"))).ToList();
             using (var dialog = new BulkResolveDialog(candidates))
             {
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
-                RunBulk(dialog.SelectedItems, dialog.DecisionComment);
+                if (dialog.PreviewScriptureEdits) PreviewSelectedCorrections(dialog.SelectedItems, dialog.DecisionComment);
+                else RunBulk(dialog.SelectedItems, dialog.DecisionComment);
             }
+        }
+        void ShowSkippedReview()
+        {
+            if (busy || indexing) return;
+            using (var dialog = new SkippedReviewDialog(progress.Skipped(), progress.DismissSkipped)) {
+                if (dialog.ShowDialog(this) == DialogResult.OK) OpenSkippedReview(dialog.SelectedId);
+            }
+            EnableActions();
+        }
+        void OpenSkippedReview(string id)
+        {
+            if (busy || indexing || String.IsNullOrEmpty(id)) return;
+            requestedManualId = id;
+            ChangeScope(new QueueScope { AllBooks = true, Status = NoteStatusFilter.All });
+        }
+        void RememberSkipped(NoteCandidate item, string reason)
+        {
+            progress.SaveSkipped(item, reason);
+            skippedReview.Text = "Manual review (" + progress.Skipped().Count + ")";
+        }
+        void PreviewSelectedCorrections(List<NoteCandidate> selected, string decisionComment)
+        {
+            if (busy || paused || indexing || scope.RecoveryOnly || String.IsNullOrWhiteSpace(decisionComment)) return;
+            var eligible = new List<NoteCandidate>(); var previews = new Dictionary<string, PassageEvidence>(); int skipped = 0;
+            foreach (var item in selected) {
+                try {
+                    var prior = progress.Get(item.StableId);
+                    if (!items.Contains(item) || duplicateIds.Contains(item.StableId) || (prior != null && (prior.Completed || prior.Outcome == "Pending apply")))
+                        throw new InvalidOperationException("Target is unavailable, ambiguous or already decided; use Recovery if needed.");
+                    previews.Add(item.StableId, owner.ForQueueItem(item).PreviewBulkCorrection(item, item.Proposal.Category, true));
+                    eligible.Add(item);
+                }
+                catch (Exception ex) {
+                    skipped++; RememberSkipped(item, ex.Message);
+                    session.AddWarning("Selected bulk correction skipped at preview: " + item.DisplayReference + ": " + ex.Message);
+                }
+            }
+            if (eligible.Count == 0) {
+                status.Text = "No selected corrections can be safely previewed. " + skipped + " skipped and left unresolved. Use Manual review for saved proposals and reasons.";
+                return;
+            }
+            ShowCorrectionPreview(eligible, previews, skipped, null, "selected corrections", decisionComment);
         }
         void BulkSandhi()
         { BulkCorrections("Sandhi / word-joining", "Sandhi"); }
@@ -568,21 +627,23 @@ namespace ParatextNoteSuggestions
                 }
                 catch (Exception ex) {
                     string detail = item.DisplayReference + ": " + ex.Message;
+                    RememberSkipped(item, ex.Message);
                     skipped.Add(detail); session.AddWarning("Bulk " + label + " skipped at preview: " + detail);
                     status.Text = "Skipped " + detail + " Continuing to next proposal."; status.Refresh();
                 }
             }
             if (eligible.Count == 0) {
                 string summary = "Bulk " + label + " complete: 0 resolved; " + skipped.Count + " not resolved (skipped). No Scripture edits.";
-                session.AddWarning(summary); status.Text = summary + " Details saved in the session log."; return;
+                session.AddWarning(summary); status.Text = summary + " Use Manual review for saved proposals and reasons."; return;
             }
             ShowCorrectionPreview(eligible, previews, skipped.Count, category, label);
         }
-        void ShowCorrectionPreview(List<NoteCandidate> eligible, Dictionary<string, PassageEvidence> previews, int skipped, string category, string label)
+        void ShowCorrectionPreview(List<NoteCandidate> eligible, Dictionary<string, PassageEvidence> previews, int skipped, string category, string label, string decisionComment = null)
         {
             // Modeless so the reviewer can read the actual Paratext editor while the preview is open.
             // Freeze queue actions until it closes; navigation itself never writes Scripture.
             var dialog = new BulkResolveDialog(eligible, previews, skipped, label, owner.Navigate);
+            if (decisionComment != null) dialog.SetDecisionComment(decisionComment);
             busy = true; EnableActions();
             dialog.FormClosed += delegate {
                 var selected = dialog.SelectedItems; string decision = dialog.DecisionComment;
@@ -619,7 +680,8 @@ namespace ParatextNoteSuggestions
                         PassageEvidence preview;
                         if (!previews.TryGetValue(item.StableId, out preview)) throw new InvalidOperationException("A reviewed preview is required.");
                         var service = owner.ForQueueItem(item);
-                        var now = service.PreviewBulkCorrection(item, category);
+                        bool reviewedSelection = category == null;
+                        var now = service.PreviewBulkCorrection(item, category ?? item.Proposal.Category, reviewedSelection);
                         if (now.Before != preview.Before || now.After != preview.After) throw new InvalidOperationException("Passage changed since preview; review again.");
                         var record = new ReviewRecord { Id = item.StableId, Outcome = "Applied", Reference = item.DisplayReference,
                             Category = item.Proposal.Category, Original = item.Proposal.Original, Replacement = item.Proposal.Suggested,
@@ -627,7 +689,7 @@ namespace ParatextNoteSuggestions
                             SessionId = session.Id, AuditId = Guid.NewGuid().ToString("N"), Reviewer = owner.Reviewer, Actor = owner.Reviewer,
                             DecisionUtc = DateTime.UtcNow.ToString("O"), ActionUtc = DateTime.UtcNow.ToString("O"), Resolution = "Pending",
                             QueueScope = scope.Describe(owner.QueueBookCode), SourceNote = item.NoteText };
-                        service.Apply(item, record.Original, record.Replacement, ContentRegion.Body, false, false, delegate {
+                        service.Apply(item, record.Original, record.Replacement, ContentRegion.Body, reviewedSelection, false, delegate {
                             if (owner.Reviewer != record.Reviewer) throw new InvalidOperationException("Paratext user changed; review again.");
                             var intent = ReviewRecord.FromXml(record.ToXml()); intent.Outcome = "Pending apply";
                             progress.Save(intent); submitted = true; session.Track(intent);
@@ -635,7 +697,7 @@ namespace ParatextNoteSuggestions
                             if (evidence.Before != preview.Before || evidence.After != preview.After) throw new InvalidOperationException("Passage changed under lock; no edit submitted.");
                             record.BeforeContext = evidence.Before; record.AfterContext = evidence.After; record.ContextScope = evidence.Scope;
                             record.Evidence = "Expected bulk " + label + " result captured; saved USFM not yet verified.";
-                        });
+                        }, reviewedSelection);
                         applied++;
                         record.Evidence = "Verified saved USFM after reviewed bulk " + label + " correction. Scripture write by Paratext user: " + record.Reviewer;
                         progress.Save(record); session.Track(record); decisionDurable = true; completed++;
@@ -649,9 +711,10 @@ namespace ParatextNoteSuggestions
                         if (submitted && !decisionDurable) {
                             stopped = true;
                             session.AddWarning("Bulk " + label + " stopped after an uncertain save/audit. Remaining selections were not attempted; inspect Recovery.");
+                            foreach (var remaining in selectedItems.Skip(processed)) RememberSkipped(remaining, "Not attempted: batch stopped after an uncertain save. Review this proposal again; reconcile the interrupted item in Recovery first.");
                             break;
                         }
-                        if (!submitted) skipped++;
+                        if (!submitted) { skipped++; RememberSkipped(item, ex.Message); }
                     }
                 }
                 int resolved = selectedItems.Count(c => { var r = progress.Get(c.StableId); return r != null && r.Resolution == "Resolved"; });
@@ -661,7 +724,7 @@ namespace ParatextNoteSuggestions
                 session.AddWarning(summary);
                 recovery.Text = "Recovery (" + progress.Outstanding().Count() + ")";
                 UpdateScopeLabel(); position = -1; Next();
-                status.Text = summary + " " + progress.Outstanding().Count() + " pending recovery. Details saved in the session log/report. Unselected eligible proposals are outside these totals.";
+                status.Text = summary + " " + progress.Outstanding().Count() + " pending recovery. Use Manual review for skipped/unattempted proposals and reasons. Unselected eligible proposals are outside these totals.";
             }
             finally { busy = false; EnableActions(); }
         }

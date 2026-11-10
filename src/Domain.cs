@@ -13,7 +13,7 @@ namespace ParatextNoteSuggestions
     public sealed class Proposal
     {
         public string FullNote = "", Pass = "", Topic = "", Category = "", Original = "", Suggested = "", Reason = "", Location = "", Confidence = "", Severity = "", Reference = "";
-        public bool ReviewerDecision, AnchorWarning;
+        public bool ReviewerDecision, AnchorWarning, ReviewedBulkLiteral;
         public ContentRegion Region;
         public ProposalRoute Route;
         public string Fingerprint;
@@ -68,6 +68,8 @@ namespace ParatextNoteSuggestions
                 bool uncertainCategory = new[] { "Source comparison", "Textual-basis review", "Theological consistency", "Reviewer decision", "Possible missed source word", "Addition not in source", "Possible typo", "Footnote / cross-reference" }.Contains(p.Category);
                 // Latin instructions, alternatives, annotations and unfamiliar categories never become automatic replacement strings.
                 bool literal = p.Original.Length > 0 && p.Suggested.Length > 0 && !Regex.IsMatch(p.Suggested, @"[A-Za-z]|\s/\s|[()\[\]{}\u00ab\u00bb]|\u2026|\.\.\.");
+                // Eligibility for an explicitly reviewed batch is independent of automatic routing.
+                p.ReviewedBulkLiteral = literal && !duplicate && !p.AnchorWarning;
                 p.Route = literal && !duplicate && !p.ReviewerDecision && !uncertainCategory && !p.AnchorWarning &&
                     Proposal.Categories.Contains(p.Category) ? ProposalRoute.Apply : ProposalRoute.Review;
             }

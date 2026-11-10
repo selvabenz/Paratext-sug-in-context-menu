@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Xml;
 using System.Xml.Linq;
@@ -37,6 +38,7 @@ namespace ParatextNoteSuggestions
         readonly string directory;
         readonly FileStream lease;
         readonly Dictionary<string, ReviewRecord> cache = new Dictionary<string, ReviewRecord>();
+        Dictionary<string, ReviewRecord> skipped;
         public string DirectoryPath { get { return directory; } }
         public ReviewProgress(string root, string projectId)
         {
@@ -88,6 +90,36 @@ namespace ParatextNoteSuggestions
         { AtomicWrite(Path.Combine(directory, "start-book.xml"), new XElement("book", book)); }
         public int StartBook()
         { string path = Path.Combine(directory, "start-book.xml"); return File.Exists(path) ? (int)XElement.Load(path) : 0; }
+        void LoadSkipped()
+        {
+            if (skipped != null) return;
+            skipped = Directory.EnumerateFiles(directory, "*.skipped.xml").Select(f => ReviewRecord.FromXml(XElement.Load(f))).ToDictionary(r => r.Id);
+        }
+        public void SaveSkipped(NoteCandidate item, string reason)
+        {
+            var prior = Get(item.StableId);
+            // Interrupted writes and saved decisions belong to Recovery, never a fresh manual edit.
+            if (prior != null && (prior.Completed || prior.Outcome == "Pending apply")) return;
+            LoadSkipped();
+            var record = new ReviewRecord { Id = item.StableId, Outcome = "Skipped", Reference = item.DisplayReference,
+                Category = item.Proposal.Category, Original = item.Proposal.Original, Replacement = item.Proposal.Suggested,
+                Region = item.Proposal.Region.ToString(), SourceNote = item.NoteText, Evidence = reason, Updated = DateTime.UtcNow.ToString("O") };
+            AtomicWrite(Path.Combine(directory, NoteParser.Hash(record.Id) + ".skipped.xml"), record.ToXml());
+            skipped[record.Id] = record;
+        }
+        public List<ReviewRecord> Skipped()
+        {
+            LoadSkipped();
+            return skipped.Values.Where(r => r.Outcome == "Skipped" && (Get(r.Id) == null || (!Get(r.Id).Completed && Get(r.Id).Outcome != "Pending apply")))
+                .OrderBy(r => r.Reference, StringComparer.Ordinal).ThenBy(r => r.Id, StringComparer.Ordinal).ToList();
+        }
+        public void DismissSkipped(string id)
+        {
+            LoadSkipped(); ReviewRecord record;
+            if (!skipped.TryGetValue(id, out record)) return;
+            var dismissed = ReviewRecord.FromXml(record.ToXml()); dismissed.Outcome = "Dismissed";
+            AtomicWrite(Path.Combine(directory, NoteParser.Hash(id) + ".skipped.xml"), dismissed.ToXml()); skipped[id] = dismissed;
+        }
         public IEnumerable<ReviewRecord> Outstanding()
         {
             foreach (string file in Directory.EnumerateFiles(directory, "*.review.xml"))

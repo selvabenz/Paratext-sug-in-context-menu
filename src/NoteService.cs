@@ -170,7 +170,10 @@ namespace ParatextNoteSuggestions
                 else foreach (var source in structured)
                 {
                     var proposal = NoteParser.Parse(source.Text);
-                    if (proposal.Route == ProposalRoute.Apply && source.Index != comments.FindLastIndex(c => !IsDecisionReply(c))) proposal.Route = ProposalRoute.Review;
+                    if (source.Index != comments.FindLastIndex(c => !IsDecisionReply(c))) {
+                        proposal.ReviewedBulkLiteral = false;
+                        if (proposal.Route == ProposalRoute.Apply) proposal.Route = ProposalRoute.Review;
+                    }
                     var candidate = Candidate(note, proposal, threadKey + ":" + source.Index, String.Join("\r\n\r\n--- Comment ---\r\n\r\n", comments.Select(Plain)));
                     var comment = comments[source.Index];
                     candidate.StableId = SourceId(note, comment);
@@ -192,7 +195,10 @@ namespace ParatextNoteSuggestions
             }
             foreach (var group in result.Where(c => c.Proposal.Original.Length > 0).GroupBy(c => c.Book + ":" + c.Chapter + ":" + c.FirstVerse + ":" + c.LastVerse + ":" + c.Proposal.Region + ":" + c.Proposal.Original))
                 if (group.Select(c => c.Proposal.Suggested).Distinct(StringComparer.Ordinal).Count() > 1)
-                    foreach (var c in group) if (c.Proposal.Route == ProposalRoute.Apply) c.Proposal.Route = ProposalRoute.Review;
+                    foreach (var c in group) {
+                        c.Proposal.ReviewedBulkLiteral = false;
+                        if (c.Proposal.Route == ProposalRoute.Apply) c.Proposal.Route = ProposalRoute.Review;
+                    }
             return result.OrderByDescending(c => !String.IsNullOrEmpty(selected) && (c.AnchorText == selected || c.Proposal.Original == selected))
                 .ThenBy(c => c.Proposal.Category).ToList();
         }
@@ -295,31 +301,42 @@ namespace ParatextNoteSuggestions
         { return PreviewBulkCorrection(candidate, "Sandhi / word-joining"); }
         public PassageEvidence PreviewBulkConfirmedTypo(NoteCandidate candidate)
         { return PreviewBulkCorrection(candidate, "Confirmed typo"); }
-        public PassageEvidence PreviewBulkCorrection(NoteCandidate candidate, string category)
+        public static bool SupportsReviewedBulk(string category)
+        { return new[] { "Sandhi / word-joining", "Confirmed typo", "Possible typo", "Plural agreement", "Punctuation", "Grammar" }.Contains(category); }
+        static void ValidateBulkCorrection(NoteCandidate fresh, string category, bool reviewedSelection)
+        {
+            var p = fresh.Proposal;
+            bool literal = reviewedSelection ? p.ReviewedBulkLiteral &&
+                TamilLiteral(p.Original, category == "Punctuation") && TamilLiteral(p.Suggested, category == "Punctuation") :
+                p.Route == ProposalRoute.Apply && !p.ReviewerDecision && TamilWords(p.Original) && TamilWords(p.Suggested);
+            if (p.Category != category || !literal || p.Region != ContentRegion.Body || p.AnchorWarning ||
+                fresh.FirstVerse != fresh.LastVerse || fresh.IsResolved ||
+                (p.Route != ProposalRoute.Apply && p.Route != ProposalRoute.Review))
+                throw new InvalidOperationException("Bulk " + category + " requires one literal Tamil body-text correction in one verse, without ambiguous instructions, competing proposals or anchor warnings. Review this proposal individually.");
+        }
+        public PassageEvidence PreviewBulkCorrection(NoteCandidate candidate, string category, bool reviewedSelection = false)
         {
             CheckContext();
-            if (category != "Sandhi / word-joining" && category != "Confirmed typo")
+            if (reviewedSelection ? !SupportsReviewedBulk(category) : category != "Sandhi / word-joining" && category != "Confirmed typo")
                 throw new InvalidOperationException("Unsupported bulk correction category.");
             var fresh = Fresh(candidate);
             var p = fresh.Proposal;
-            if (p.Category != category || p.Route != ProposalRoute.Apply || p.Region != ContentRegion.Body ||
-                p.ReviewerDecision || p.AnchorWarning || fresh.FirstVerse != fresh.LastVerse || fresh.IsResolved ||
-                !TamilWords(p.Original) || !TamilWords(p.Suggested))
-                throw new InvalidOperationException("Bulk " + category + " requires a clear literal Tamil body-text correction in one verse, with no reviewer-decision or anchor warning. Review this proposal individually.");
+            ValidateBulkCorrection(fresh, category, reviewedSelection);
             if (!project.CanEdit(plugin, candidate.Book, candidate.Chapter)) throw new InvalidOperationException("Editing permission is unavailable.");
             var tokens = project.GetUSFMTokens(candidate.Book, candidate.Chapter).ToList();
             var match = ExactEditor.Locate(TokenMapping.Parts(tokens), ContentRegion.Body, candidate.Chapter, candidate.FirstVerse, candidate.LastVerse,
                 p.Original, p.Suggested, p.Original == fresh.AnchorText ? fresh.Before : "", p.Original == fresh.AnchorText ? fresh.After : "");
             var old = tokens[match.TokenIndex] as IUSFMTextToken;
-            if (old == null || (match.Start > 0 && WordCharacter(old.Text, match.Start - 1)) ||
-                (match.Start + match.Length < old.Text.Length && WordCharacter(old.Text, match.Start + match.Length)))
+            bool wordStart = WordCharacter(p.Original, 0), wordEnd = WordCharacter(p.Original, p.Original.Length - 1);
+            if (old == null || (wordStart && match.Start > 0 && WordCharacter(old.Text, match.Start - 1)) ||
+                (wordEnd && match.Start + match.Length < old.Text.Length && WordCharacter(old.Text, match.Start + match.Length)))
                 throw new InvalidOperationException("Bulk corrections must match complete words; review this target individually.");
             // A formatting boundary can split a word without putting whitespace in either token.
             var body = TokenMapping.Parts(tokens).Where(t => t.Region == ContentRegion.Body && t.Chapter == candidate.Chapter && t.Verse == candidate.FirstVerse && t.Text.Length > 0).ToList();
             var previous = body.LastOrDefault(t => t.TokenIndex < match.TokenIndex);
             var next = body.FirstOrDefault(t => t.TokenIndex > match.TokenIndex);
-            if ((match.Start == 0 && previous != null && WordCharacter(previous.Text, previous.Text.Length - 1)) ||
-                (match.Start + match.Length == old.Text.Length && next != null && WordCharacter(next.Text, 0)))
+            if ((wordStart && match.Start == 0 && previous != null && WordCharacter(previous.Text, previous.Text.Length - 1)) ||
+                (wordEnd && match.Start + match.Length == old.Text.Length && next != null && WordCharacter(next.Text, 0)))
                 throw new InvalidOperationException("A word may cross a formatting boundary; review this target individually.");
             string before = Passage(tokens, candidate, ContentRegion.Body);
             tokens[match.TokenIndex] = new ChangedTextToken(old, ExactEditor.Replace(old.Text, match));
@@ -330,12 +347,20 @@ namespace ParatextNoteSuggestions
             return !String.IsNullOrWhiteSpace(text) && text == text.Trim() && text.Any(c => c >= '\u0b80' && c <= '\u0bff') &&
                 text.All(c => c == ' ' || (c >= '\u0b80' && c <= '\u0bff' && (Char.IsLetter(c) || Char.GetUnicodeCategory(c) == System.Globalization.UnicodeCategory.NonSpacingMark || Char.GetUnicodeCategory(c) == System.Globalization.UnicodeCategory.SpacingCombiningMark)));
         }
+        static bool TamilLiteral(string text, bool punctuationOnly)
+        {
+            const string punctuation = ".,;:!?\u2018\u2019\u201c\u201d\u2013\u2014-'\"";
+            return !String.IsNullOrWhiteSpace(text) && text == text.Trim() &&
+                (punctuationOnly || text.Any(c => c >= '\u0b80' && c <= '\u0bff' && Char.IsLetter(c))) &&
+                text.All(c => c == ' ' || punctuation.IndexOf(c) >= 0 ||
+                    (c >= '\u0b80' && c <= '\u0bff' && (Char.IsLetter(c) || Char.GetUnicodeCategory(c) == System.Globalization.UnicodeCategory.NonSpacingMark || Char.GetUnicodeCategory(c) == System.Globalization.UnicodeCategory.SpacingCombiningMark)));
+        }
         static bool WordCharacter(string text, int index)
         {
             var kind = Char.GetUnicodeCategory(text, index);
             return Char.IsLetterOrDigit(text, index) || kind == System.Globalization.UnicodeCategory.NonSpacingMark || kind == System.Globalization.UnicodeCategory.SpacingCombiningMark;
         }
-        public void Apply(NoteCandidate candidate, string original, string replacement, ContentRegion region, bool reviewed, bool explicitDeletion = false, Action beforeSubmit = null, Action<PassageEvidence> captureEvidence = null)
+        public void Apply(NoteCandidate candidate, string original, string replacement, ContentRegion region, bool reviewed, bool explicitDeletion = false, Action beforeSubmit = null, Action<PassageEvidence> captureEvidence = null, bool reviewedBulkCorrection = false)
         {
             CheckContext();
             if (region == ContentRegion.Structure) throw new InvalidOperationException("Choose the structural marker review action for this proposal.");
@@ -354,6 +379,11 @@ namespace ParatextNoteSuggestions
             {
                 if (writeLock == null) throw new InvalidOperationException("Paratext could not grant a Scripture write lock. Try again when the passage is available.");
                 var fresh = Fresh(candidate);
+                if (reviewedBulkCorrection) {
+                    if (!reviewed || !SupportsReviewedBulk(fresh.Proposal.Category) || original != fresh.Proposal.Original || replacement != fresh.Proposal.Suggested || region != ContentRegion.Body)
+                        throw new InvalidOperationException("A reviewed bulk correction must use the exact approved proposal.");
+                    ValidateBulkCorrection(fresh, candidate.Proposal.Category, true);
+                }
                 if (!project.CanEdit(plugin, candidate.Book, scope)) throw new InvalidOperationException("Editing permission was withdrawn. No edit was submitted.");
                 if (!reviewed && (fresh.Proposal.Route != ProposalRoute.Apply || original != fresh.Proposal.Original || replacement != fresh.Proposal.Suggested || region != fresh.Proposal.Region))
                     throw new InvalidOperationException("This correction requires review before applying.");
