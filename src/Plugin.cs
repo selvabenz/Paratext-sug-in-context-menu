@@ -16,8 +16,17 @@ using Paratext.PluginInterfaces;
 
 namespace ParatextNoteSuggestions
 {
-    public sealed class NoteSuggestionsPlugin : IParatextStandalonePlugin
+    public sealed class NoteSuggestionsPlugin : IParatextStandalonePlugin, IParatextScrTextAnnotationPlugin
     {
+        readonly Dictionary<string, QueueTargetHighlight> highlights = new Dictionary<string, QueueTargetHighlight>();
+        public QueueTargetHighlight HighlightFor(IProject project)
+        {
+            QueueTargetHighlight source;
+            if (!highlights.TryGetValue(project.ID, out source)) { source = new QueueTargetHighlight(project); highlights.Add(project.ID, source); }
+            return source;
+        }
+        public IEnumerable<PluginAnnotationMenuEntry> PluginAnnotationMenuEntries
+        { get { yield return new PluginAnnotationMenuEntry("Highlight queued note target", HighlightFor); } }
         static readonly Dictionary<string, QueueForm> Queues = new Dictionary<string, QueueForm>();
         public string Name { get { return "Note Suggestions"; } }
         public string Publisher { get { return "selvabenz"; } }

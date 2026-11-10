@@ -43,6 +43,74 @@ namespace NoteSuggestionsTests
         { return items.ToDictionary(c => c.StableId, c => f.Service().ForQueueItem(c).PreviewBulkSandhi(c)); }
         public static void Run(Action<string, Action> test)
         {
+            test("Scripture annotation highlights a unique literal Original only in the pinned verse", delegate {
+                var f = new Fixture(); var service = f.Service(); var item = service.ReadQueueBook(1).Single();
+                var source = f.Plugin.HighlightFor(f.Project); int changes = 0; source.AnnotationsChanged += delegate { changes++; };
+                service.Navigate(item);
+                var mark = source.GetAnnotations(item.TargetReference, "before " + item.Proposal.Original + " after").Single();
+                Check(mark.ScriptureSelection.SelectedText == item.Proposal.Original && changes == 1);
+                Check(source.GetAnnotations(Fixture.MakeRef(1, 4), item.Proposal.Original).Count == 0);
+                Check(source.GetAnnotations(Fixture.MakeRef(1, 3, 40), item.Proposal.Original).Count == 0);
+                Check(source.GetAnnotations(item.TargetReference, item.Proposal.Suggested).Count == 0);
+                Check(source.GetAnnotations(item.TargetReference, item.Proposal.Original + " " + item.Proposal.Original).Count == 0);
+                Check(f.Writes == 0 && f.Resolves == 0 && f.Replies.Count == 0);
+            });
+            test("Scripture highlight uses anchor context and clears unsupported and closed targets", delegate {
+                var f = new Fixture(); var item = f.Service().ReadQueueBook(1).Single(); var source = f.Plugin.HighlightFor(f.Project);
+                item.Before = "left "; item.After = " right"; source.SetTarget(item);
+                string text = "left " + item.Proposal.Original + " right " + item.Proposal.Original;
+                Check(source.GetAnnotations(item.TargetReference, text).Single().ScriptureSelection.Offset == 5);
+                item.FirstVerse = 2; source.SetTarget(item); Check(source.GetAnnotations(item.TargetReference, text).Count == 0);
+                item.FirstVerse = item.LastVerse; item.Unreadable = true; source.SetTarget(item);
+                Check(source.GetAnnotations(item.TargetReference, text).Count == 0);
+                item.Unreadable = false; source.SetTarget(item); source.SetTarget(null);
+                Check(source.GetAnnotations(item.TargetReference, text).Count == 0);
+                var other = new Fixture(); f.Plugin.HighlightFor(other.Project).SetTarget(item);
+                Check(source.GetAnnotations(item.TargetReference, text).Count == 0);
+            });
+            test("Apply and Reject advance the Scripture highlight and Return refreshes the next target", delegate {
+                foreach (bool applyDecision in new[] { true, false }) {
+                    var f = MultiBook(); var source = f.Plugin.HighlightFor(f.Project);
+                    using (var q = Queue(f, Root())) {
+                        q.Show(); Application.DoEvents();
+                        var first = Field<NoteCandidate>(q, "current");
+                        Check(source.GetAnnotations(first.TargetReference, first.Proposal.Original).Count == 1);
+                        Field<TextBox>(q, "comment").Text = "Reviewed exact correction";
+                        Field<CheckBox>(q, "reviewed").Checked = true;
+                        Field<Button>(q, applyDecision ? "apply" : "reject").PerformClick();
+                        var second = Field<NoteCandidate>(q, "current");
+                        Check(second != null && second.Book == 40);
+                        Check(source.GetAnnotations(first.TargetReference, first.Proposal.Original).Count == 0);
+                        Check(source.GetAnnotations(second.TargetReference, second.Proposal.Original).Count == 1);
+                        source.SetTarget(null); Field<Button>(q, "back").PerformClick(); Call(q, "CheckNavigation");
+                        Check(source.GetAnnotations(second.TargetReference, second.Proposal.Original).Count == 1);
+                        Check(f.Writes == (applyDecision ? 1 : 0)); q.Close();
+                        Check(source.GetAnnotations(second.TargetReference, second.Proposal.Original).Count == 0);
+                    }
+                }
+            });
+            test("end of pass and scope changes remove the previous Scripture highlight", delegate {
+                var f = new Fixture(); var source = f.Plugin.HighlightFor(f.Project);
+                using (var q = Queue(f, Root())) {
+                    var item = Field<NoteCandidate>(q, "current");
+                    Call(q, "Next"); Check(source.GetAnnotations(item.TargetReference, item.Proposal.Original).Count == 0);
+                    Scope(q, new QueueScope()); Check(source.GetAnnotations(item.TargetReference, item.Proposal.Original).Count == 1);
+                    Scope(q, Books(NoteStatusFilter.Unresolved));
+                    Check(source.GetAnnotations(item.TargetReference, item.Proposal.Original).Count == 0); q.Close();
+                }
+            });
+            test("automatic queue loads force the same two-step passage reveal as Return", delegate {
+                var f = new Fixture(); using (var q = Queue(f, Root())) {
+                    var item = Field<NoteCandidate>(q, "current");
+                    Check(Field<bool>(q, "returnNavigationPending") && f.LastNavigationReference.VerseNum != item.FirstVerse);
+                    Call(q, "CheckNavigation");
+                    Check(!Field<bool>(q, "returnNavigationPending") && f.LastNavigationReference == item.TargetReference);
+                    Call(q, "LoadCurrent");
+                    Check(Field<bool>(q, "returnNavigationPending") && f.LastNavigationReference.VerseNum != item.FirstVerse);
+                    Call(q, "CheckNavigation"); Check(f.LastNavigationReference == item.TargetReference);
+                    Check(f.Writes == 0 && f.Resolves == 0); q.Close();
+                }
+            });
             test("skipped proposal reminders survive reopen and never overwrite drafts or decisions", delegate {
                 var f = Sandhi(); var c = f.Service().ReadQueueBook(1).Single(); string root = Root();
                 using (var p = new ReviewProgress(root, f.ProjectId)) {

@@ -94,6 +94,24 @@ namespace NoteSuggestionsTests
             Project = Stub<IProject>.Create((m, a) => {
                 switch(m.Name) {
                     case "get_ID": return ProjectId;
+                    case "FindMatchingScriptureSelections":
+                        var reference = (IVerseRef)a[0]; var find = (string)a[1]; var usfm = (string)a[2];
+                        var selections = new List<IScriptureTextSelection>();
+                        if ((bool)a[3] || (bool)a[4]) throw new Exception("Highlight must use exact literal matching");
+                        for (int offset = usfm.IndexOf(find, StringComparison.Ordinal); offset >= 0; offset = usfm.IndexOf(find, offset + find.Length, StringComparison.Ordinal)) {
+                            int at = offset;
+                            selections.Add(Stub<IScriptureTextSelection>.Create((sm, sa) => {
+                                switch (sm.Name) {
+                                    case "get_VerseRefStart": case "get_VerseRefEnd": return reference;
+                                    case "get_SelectedText": return find;
+                                    case "get_Offset": return at;
+                                    case "get_BeforeContext": return usfm.Substring(0, at);
+                                    case "get_AfterContext": return usfm.Substring(at + find.Length);
+                                    default: throw new NotSupportedException(sm.Name);
+                                }
+                            }));
+                        }
+                        return selections;
                     case "get_ShortName": return "Synthetic Test";
                     case "get_Language": return null;
                     case "get_AvailableBooks": return AvailableBooks;

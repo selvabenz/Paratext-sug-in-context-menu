@@ -33,6 +33,10 @@ The compact **Review**, **Source discussion** and **Tools** tabs separate decisi
 
 **Tools > Manual review (N)** lists skipped bulk proposals and selections left unattempted after a stopped batch, across books, filters and queue sessions. Each reminder retains its skip reason, exact proposal and source discussion snapshot. **Review in queue (all books)** rechecks the source and opens the proposal for individual review; missing or changed sources keep their saved reminder. **Remove reminder** dismisses only the local reminder. Completed decisions leave the list automatically; interrupted writes and pending note resolution belong in **Recovery**. This list is local to the current Windows account and project.
 
+## Scripture target highlighting (development build)
+
+Enable **Highlight queued note target** in Paratext's Scripture annotation menu for the project. The editor then highlights the current proposal's exact **Original** text automatically when **Apply + next**, **Reject + next**, or navigation loads another item, and refreshes it on **Return to passage**. This temporary annotation does not move the editing caret. Missing, ambiguous or cross-verse targets receive no highlight. Closing the queue, changing to an empty scope, or reaching the end clears it. Paratext owns enabling the annotation layer; the plugin cannot switch it on automatically. See [the implementation and validation plan](TARGET_HIGHLIGHT_PLAN.md).
+
 ## Reviewed bulk Sandhi application (development build)
 
 **Tools > Bulk apply confirmed typos...** provides the same reviewed application and recovery safeguards for `Confirmed typo` proposals. That dedicated action excludes `Possible typo`; explicitly reviewed Possible typo corrections are available through **Bulk resolve... > Preview Scripture edits...** in the development build. Read the [confirmed-typo safety plan](CONFIRMED_TYPO_PLAN.md) for eligibility and release checks.

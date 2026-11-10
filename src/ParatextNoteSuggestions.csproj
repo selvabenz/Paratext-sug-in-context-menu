@@ -24,6 +24,7 @@
     <Reference Include="PluginInterfaces"><HintPath>$(ParatextDir)\PluginInterfaces.dll</HintPath><Private>false</Private></Reference>
     <Compile Include="Domain.cs" />
     <Compile Include="NoteService.cs" />
+    <Compile Include="QueueTargetHighlight.cs" />
     <Compile Include="Plugin.cs" />
     <Compile Include="ReviewForm.cs" />
     <Compile Include="ReviewProgress.cs" />

@@ -165,11 +165,7 @@ namespace ParatextNoteSuggestions
             };
             later.Click += delegate { Guard(delegate { SaveDraft(); Next(); }); };
             back.Click += delegate { Guard(delegate {
-                navigationTimer.Stop(); if (current == null) return;
-                navigationLabel.Text = "Returning to " + current.DisplayReference + "...";
-                returnNavigationPending = true; navigationChecks = 0;
-                try { owner.BeginReturnToPassage(current); }
-                finally { navigationTimer.Start(); }
+                NavigateCurrent();
             }); };
             export.Click += delegate { Guard(delegate { using (var dialog = new SaveFileDialog { Filter = "CSV review log|*.csv", FileName = "Note-review-decisions.csv" }) if (dialog.ShowDialog(this) == DialogResult.OK) progress.Export(dialog.FileName); }); };
             commentPreset.SelectedIndexChanged += delegate { if (!populating && commentPreset.SelectedIndex > 0) comment.Text = (string)commentPreset.SelectedItem; };
@@ -202,6 +198,7 @@ namespace ParatextNoteSuggestions
             if (disposing && !resourcesDisposed)
             {
                 resourcesDisposed = true; indexTimer.Dispose(); draftTimer.Dispose(); navigationTimer.Dispose();
+                owner.HighlightTarget(null);
                 if (progress != null) progress.Dispose();
             }
             base.Dispose(disposing);
@@ -229,6 +226,7 @@ namespace ParatextNoteSuggestions
             SaveDraft(); progress.SaveScope(selection);
             indexTimer.Stop(); navigationTimer.Stop(); draftTimer.Stop(); scope = selection;
             items.Clear(); duplicateIds.Clear(); seen.Clear(); books.Clear(); current = null; position = -1; completed = 0; recoveryNotice = "";
+            owner.HighlightTarget(null);
             foreach (int number in owner.QueueBooks().Where(scope.IncludesBook)) books.Enqueue(number);
             paused = false; pause.Text = "Pause"; indexing = true; UpdateScopeLabel();
             heading.Text = "Indexing selected scope, one book at a time...";
@@ -255,7 +253,11 @@ namespace ParatextNoteSuggestions
         {
             navigationTimer.Stop(); returnNavigationPending = false; if (current == null) return;
             navigationLabel.Text = "Opening " + current.DisplayReference + " in " + owner.ProjectName + ". Verse navigation; anchor: " + NoteParser.Preview(current.AnchorText ?? "", 60);
-            owner.Navigate(current); navigationChecks = 0; navigationTimer.Start();
+            // Advancing can stay in the same verse, or the editor can still report a verse
+            // that has been manually scrolled out of view. Reveal it just as Return does.
+            returnNavigationPending = true; navigationChecks = 0;
+            try { owner.BeginReturnToPassage(current); }
+            finally { navigationTimer.Start(); }
         }
         void CheckNavigation()
         {
@@ -374,6 +376,7 @@ namespace ParatextNoteSuggestions
             }
             if (current == null)
             {
+                owner.HighlightTarget(null);
                 heading.Text = owner.ProjectName + " - " + completed + " / " + items.Count + " reviewed" + recoveryNotice;
                 source.Text = "End of this pass. Resume to revisit items left for later, or close and reopen to scan for new notes.";
                 original.Clear(); replacement.Clear(); comment.Clear();

@@ -73,6 +73,7 @@ namespace ParatextNoteSuggestions
         }
         public void Navigate(NoteCandidate item)
         {
+            HighlightTarget(item);
             host.OpenTextWindowFor(project, OpenWindowBehavior.UseExisting, item.TargetReference);
             ScrollProjectTo(item);
         }
@@ -89,6 +90,7 @@ namespace ParatextNoteSuggestions
         }
         public void BeginReturnToPassage(NoteCandidate item)
         {
+            HighlightTarget(item);
             // UseExisting can leave a manually scrolled editor unchanged when its reference
             // already equals the target. Visit a neighbouring verse before returning on the
             // next UI tick, so Paratext performs a real reference change and reveals the verse.
@@ -99,6 +101,11 @@ namespace ParatextNoteSuggestions
         }
         static bool SameReference(IVerseRef left, IVerseRef right)
         { return left.BookNum == right.BookNum && left.ChapterNum == right.ChapterNum && left.VerseNum == right.VerseNum; }
+        public void HighlightTarget(NoteCandidate item)
+        {
+            var suggestions = plugin as NoteSuggestionsPlugin;
+            if (suggestions != null) suggestions.HighlightFor(project).SetTarget(item);
+        }
         public bool NavigationVisible(NoteCandidate item)
         {
             return host.AllOpenWindows.Any(w => w.Project != null && w.Project.ID == projectId && w.VerseRef != null &&
