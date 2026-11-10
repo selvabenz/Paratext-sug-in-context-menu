@@ -35,7 +35,7 @@ The compact **Review**, **Source discussion** and **Tools** tabs separate decisi
 
 ## Scripture target highlighting (development build)
 
-Enable **Highlight queued note target** in Paratext's Scripture annotation menu for the project. The editor then highlights the current proposal's exact **Original** text automatically when **Apply + next**, **Reject + next**, or navigation loads another item, and refreshes it on **Return to passage**. This temporary annotation does not move the editing caret. Missing, ambiguous or cross-verse targets receive no highlight. Closing the queue, changing to an empty scope, or reaching the end clears it. Paratext owns enabling the annotation layer; the plugin cannot switch it on automatically. See [the implementation and validation plan](TARGET_HIGHLIGHT_PLAN.md).
+Enable **Highlight queued note target** in Paratext's Scripture annotation menu for the project. The editor then highlights the current proposal's exact **Original** text automatically when **Apply + next**, **Reject + next**, **Next**, or **Previous** loads another item, and refreshes it on **Return to passage**. Each navigation also reveals the target verse. This temporary annotation does not move the editing caret. Missing, ambiguous or cross-verse targets receive no highlight. Closing the queue, changing to an empty scope, or reaching the end clears it. Paratext owns enabling the annotation layer; the plugin cannot switch it on automatically. See [the implementation and validation plan](TARGET_HIGHLIGHT_PLAN.md).
 
 ## Reviewed bulk Sandhi application (development build)
 

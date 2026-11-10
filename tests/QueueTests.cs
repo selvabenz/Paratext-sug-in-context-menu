@@ -89,6 +89,30 @@ namespace NoteSuggestionsTests
                     }
                 }
             });
+            test("Next and Previous buttons refresh the Scripture highlight and reveal the pinned passage without decisions", delegate {
+                var f = MultiBook(); var source = f.Plugin.HighlightFor(f.Project);
+                using (var q = Queue(f, Root())) {
+                    q.Show(); Application.DoEvents();
+                    var first = Field<NoteCandidate>(q, "current");
+                    Call(q, "CheckNavigation");
+                    Field<TextBox>(q, "comment").Text = "Keep this draft while browsing";
+                    Field<Button>(q, "next").PerformClick();
+                    var second = Field<NoteCandidate>(q, "current");
+                    Check(second != null && second.Book == 40 && second.StableId != first.StableId);
+                    Check(source.GetAnnotations(first.TargetReference, first.Proposal.Original).Count == 0);
+                    Check(source.GetAnnotations(second.TargetReference, second.Proposal.Original).Count == 1);
+                    Check(Field<bool>(q, "returnNavigationPending"));
+                    Call(q, "CheckNavigation"); Check(f.LastNavigationReference == second.TargetReference);
+                    Field<Button>(q, "previous").PerformClick();
+                    Check(Field<NoteCandidate>(q, "current").StableId == first.StableId);
+                    Check(source.GetAnnotations(second.TargetReference, second.Proposal.Original).Count == 0);
+                    Check(source.GetAnnotations(first.TargetReference, first.Proposal.Original).Count == 1);
+                    Check(Field<bool>(q, "returnNavigationPending"));
+                    Call(q, "CheckNavigation"); Check(f.LastNavigationReference == first.TargetReference);
+                    Check(Field<TextBox>(q, "comment").Text == "Keep this draft while browsing");
+                    Check(f.Writes == 0 && f.Resolves == 0 && f.Replies.Count == 0); q.Close();
+                }
+            });
             test("end of pass and scope changes remove the previous Scripture highlight", delegate {
                 var f = new Fixture(); var source = f.Plugin.HighlightFor(f.Project);
                 using (var q = Queue(f, Root())) {
