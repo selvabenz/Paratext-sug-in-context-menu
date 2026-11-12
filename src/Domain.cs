@@ -55,10 +55,7 @@ namespace ParatextNoteSuggestions
             p.ReviewerDecision = !String.Equals(reviewer, "No", StringComparison.OrdinalIgnoreCase);
             string topic = (p.Topic + " " + p.Location).ToLowerInvariant();
             p.AnchorWarning = Regex.IsMatch(p.Location, "not found verbatim|anchored on the start|differs from the current", RegexOptions.IgnoreCase);
-            p.Region = topic.Contains("introduction") ? ContentRegion.Introduction :
-                Regex.IsMatch(topic, "heading|chapter label") ? ContentRegion.Heading :
-                topic.Contains("cross-reference") || topic.Contains("cross reference") ? ContentRegion.CrossReference :
-                topic.Contains("footnote") ? ContentRegion.Footnote : ContentRegion.Body;
+            p.Region = TargetRegion(topic, p.Reason);
             bool structural = p.Category == "USFM marker" || p.Original.Contains("\\") || p.Suggested.Contains("\\") ||
                 Regex.IsMatch(topic, "verse alignment|verse bridge|verse order|footnote placement|usfm|markup", RegexOptions.IgnoreCase);
             if (structural) { p.Region = ContentRegion.Structure; p.Route = ProposalRoute.Structure; }
@@ -77,6 +74,22 @@ namespace ParatextNoteSuggestions
             return p;
         }
         static string Get(Dictionary<string, string> fields, string key) { string value; return fields.TryGetValue(key, out value) ? value : ""; }
+        static ContentRegion TargetRegion(string topic, string reason)
+        {
+            // Topic/Location are authoritative. A location at the start of Reason is
+            // also used by existing QA notes (e.g. "In the footnote, ..."). Do not
+            // infer a target from incidental comparisons later in the explanation.
+            string location = topic;
+            if (!Regex.IsMatch(location, @"\b(?:introduction|heading|chapter label|cross[- ]reference|footnote|body text|scripture body|verse text)\b", RegexOptions.IgnoreCase)) {
+                const string regions = @"introduction|heading|chapter label|cross[- ]reference|footnote";
+                var hint = Regex.Match(reason ?? "", @"^\s*(?:in\s+(?:the\s+)?(?:book\s+)?(" + regions + @")\b|(?:book\s+)?(" + regions + @")\s*[:,])", RegexOptions.IgnoreCase);
+                location = hint.Success ? (hint.Groups[1].Value + hint.Groups[2].Value).ToLowerInvariant() : "";
+            }
+            return location.Contains("introduction") ? ContentRegion.Introduction :
+                Regex.IsMatch(location, "heading|chapter label") ? ContentRegion.Heading :
+                Regex.IsMatch(location, "cross[- ]reference") ? ContentRegion.CrossReference :
+                location.Contains("footnote") ? ContentRegion.Footnote : ContentRegion.Body;
+        }
         static string Metadata(string text, string key)
         {
             var m = Regex.Match(text, Regex.Escape(key) + @":\s*([^\r\n\u00b7]+)");

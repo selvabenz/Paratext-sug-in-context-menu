@@ -31,7 +31,11 @@ Completed decisions now append an attributed reply, including the decision comme
 
 The compact **Review**, **Source discussion** and **Tools** tabs separate decisions, source evidence, navigation settings and reporting. See [the implementation plan and acceptance status](DECISION_COMMENTS_PLAN.md). Tracked in [GitHub issue #5](https://github.com/selvabenz/Paratext-sug-in-context-menu/issues/5).
 
+The **Log** tab shows recovery notices, the number of unreadable discussions and full session warnings. These notices no longer expand the review heading. The **ⓘ** information button opens the current review status and saved bulk-skip reason in a resizable window that updates as you browse. Unreadable counts track distinct unreadable sources, independently of other warnings.
+
 **Tools > Manual review (N)** lists skipped bulk proposals and selections left unattempted after a stopped batch, across books, filters and queue sessions. Each reminder retains its skip reason, exact proposal and source discussion snapshot. **Review in queue (all books)** rechecks the source and opens the proposal for individual review; missing or changed sources keep their saved reminder. **Remove reminder** dismisses only the local reminder. Completed decisions leave the list automatically; interrupted writes and pending note resolution belong in **Recovery**. This list is local to the current Windows account and project.
+
+The selected **Bulk resolve... > Preview Scripture edits...** workflow also supports exact corrections in introductions, headings, footnotes and cross-references. Each preview row shows the target region, which is preserved through application and audit history. Explicit opening locations in the note's Reason field, such as “In the footnote, ...”, are recognized when Topic/Location does not name a region. Introduction corrections read and lock the whole book while editing only introduction text. Tamil text containing digits, such as dates, is supported. Structural changes, ambiguous matches and edits spanning formatting tokens still require individual review. The dedicated Sandhi/confirmed-typo bulk tools retain their body-text restriction.
 
 ## Scripture target highlighting (development build)
 

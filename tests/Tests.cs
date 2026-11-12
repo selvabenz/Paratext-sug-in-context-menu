@@ -53,6 +53,7 @@ namespace NoteSuggestionsTests
         public static IBookInfo Book(int number, string code)
         { return Stub<IBookInfo>.Create((m, a) => m.Name == "get_Number" ? (object)number : (object)code); }
         public List<IUSFMToken> Tokens = new List<IUSFMToken>();
+        public readonly List<int> TokenReadChapters = new List<int>(), ScriptureLockChapters = new List<int>();
         public Dictionary<string, List<IUSFMToken>> Serialized = new Dictionary<string, List<IUSFMToken>>();
         public NoteSuggestionsPlugin Plugin = new NoteSuggestionsPlugin();
         public bool Editable = true, LockAvailable = true, Resolved, IgnorePut, Revoke, ThrowPut;
@@ -119,12 +120,13 @@ namespace NoteSuggestionsTests
                     case "CanEdit": return Editable;
                     case "RequestWriteLock":
                         bool notesLock = a.Length == 3 && a[2] is WriteLockScope;
+                        if (!notesLock) ScriptureLockChapters.Add((int)a[3]);
                         if (!LockAvailable || (notesLock && !NotesLockAvailable)) return null;
                         LockHeld = true; NotesLockHeld = notesLock;
                         var value = Stub<IWriteLock>.Create((lm, la) => { if(lm.Name == "Dispose") { LockHeld = false; NotesLockHeld = false; Released++; return null; } if(lm.Name == "SendNotifications") { Notifications++; return null; } throw new NotSupportedException(lm.Name); });
                         if (Revoke) ((Action<IWriteLock>)a[1])(value);
                         return value;
-                    case "GetUSFMTokens": return Tokens.ToList();
+                    case "GetUSFMTokens": TokenReadChapters.Add((int)a[1]); return Tokens.ToList();
                     case "ConvertToUSFMString": return Serialize((IEnumerable<IUSFMToken>)a[0]);
                     case "ConvertToUSFMTokens":
                         List<IUSFMToken> saved;
@@ -246,6 +248,8 @@ namespace NoteSuggestionsTests
             }
             ReportTests.Run(Test);
             QueueTests.Run(Test);
+            TargetingTests.Run(Test);
+            QueueInformationTests.Run(Test);
             foreach(string category in Proposal.Categories)
             {
                 string captured=category;

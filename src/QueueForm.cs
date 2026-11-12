@@ -41,6 +41,12 @@ namespace ParatextNoteSuggestions
         readonly Timer indexTimer = new Timer { Interval = 30 };
         readonly Timer draftTimer = new Timer { Interval = 600 };
         readonly Label heading = new Label(), status = new Label();
+        readonly TextBox queueLog = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill, BackColor = Color.White };
+        readonly Button information = Button("ⓘ");
+        readonly ToolTip informationTip = new ToolTip();
+        readonly HashSet<string> unreadableSources = new HashSet<string>();
+        Form informationWindow;
+        TextBox informationText;
         readonly TextBox original = Box(65), replacement = Box(65), source = Box(180), comment = Box(65);
         readonly ComboBox region = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Top };
         readonly CheckBox reviewed = new CheckBox { Text = "I reviewed this exact correction", AutoSize = true };
@@ -52,9 +58,9 @@ namespace ParatextNoteSuggestions
         readonly Button resolve = Button("Retry note resolution");
         NoteCandidate current;
         int position = -1, completed;
+        int missingRecoveryCount;
         bool paused, busy, populating, indexing = true, blocked;
         bool resourcesDisposed;
-        string recoveryNotice = "";
         public QueueForm(NoteService service, string progressRoot = null, string reportDirectory = null)
         {
             owner = service;
@@ -127,16 +133,27 @@ namespace ParatextNoteSuggestions
             foreach (var b in new[] { bulkSandhi, bulkTypos, skippedReview, retry, resolve, later, viewReport, reportFolder }) tools.Controls.Add(b);
             var export = Button("Export decisions..."); tools.Controls.Add(export);
             var toolsTab = new TabPage("Tools"); toolsTab.Controls.Add(tools); tabs.TabPages.Add(toolsTab);
+            queueLog.Name = "queueLog"; queueLog.AccessibleName = "Queue log";
+            var logTab = new TabPage("Log"); logTab.Controls.Add(queueLog); tabs.TabPages.Add(logTab);
             var actions = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Dock = DockStyle.Fill, WrapContents = true, Margin = new Padding(0, 3, 0, 0) };
             foreach (var b in new[] { previous, next, back, apply, reject, pause }) actions.Controls.Add(b);
             root.Controls.Add(actions);
-            status.AutoSize = true; status.Margin = new Padding(3, 3, 3, 0); root.Controls.Add(status); Controls.Add(root);
+            information.Name = "reviewInformation"; information.AccessibleName = "Review information";
+            information.Font = new Font("Segoe UI", 14); information.Anchor = AnchorStyles.Right;
+            informationTip.SetToolTip(information, "Review information: current status and saved bulk skip reason");
+            information.Click += delegate { ShowReviewInformation(); };
+            status.TextChanged += delegate {
+                information.AccessibleDescription = status.Text;
+                if (informationText != null && !informationText.IsDisposed) informationText.Text = status.Text;
+                RefreshQueueLog();
+            };
+            root.Controls.Add(information); Controls.Add(root);
             apply.BackColor = Color.FromArgb(27, 97, 150); apply.ForeColor = Color.White; apply.FlatAppearance.BorderSize = 0;
             Action reflow = delegate {
                 if (WindowState == FormWindowState.Minimized || root.ClientSize.Width < 300) return;
                 int width = root.ClientSize.Width - root.Padding.Horizontal - 6;
                 bookPicker.MaximumSize = scopePicker.MaximumSize = new Size(width, 0);
-                heading.MaximumSize = scopeLabel.MaximumSize = navigationLabel.MaximumSize = status.MaximumSize = new Size(width, 0);
+                heading.MaximumSize = scopeLabel.MaximumSize = navigationLabel.MaximumSize = new Size(width, 0);
                 foreach (Control control in fields.Controls) {
                     control.Margin = new Padding(2);
                     if (control is CheckBox || control is Button) control.MaximumSize = new Size(Math.Max(180, fields.ClientSize.Width - 10), 0);
@@ -197,7 +214,9 @@ namespace ParatextNoteSuggestions
         {
             if (disposing && !resourcesDisposed)
             {
-                resourcesDisposed = true; indexTimer.Dispose(); draftTimer.Dispose(); navigationTimer.Dispose();
+                resourcesDisposed = true; indexTimer.Dispose(); draftTimer.Dispose(); navigationTimer.Dispose(); informationTip.Dispose();
+                status.Dispose();
+                if (informationWindow != null) informationWindow.Dispose();
                 owner.HighlightTarget(null);
                 if (progress != null) progress.Dispose();
             }
@@ -215,17 +234,39 @@ namespace ParatextNoteSuggestions
             panel.Controls.Add(control, 1, row);
         }
         void Guard(Action action) { try { action(); } catch (Exception ex) { Fail(ex); } }
+        void ShowReviewInformation()
+        {
+            if (informationWindow == null || informationWindow.IsDisposed) {
+                informationText = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill, BackColor = Color.White, Text = status.Text, AccessibleName = "Current review details" };
+                informationWindow = new Form { Text = "Review information", Font = Font, Size = new Size(520, 300), MinimumSize = new Size(320, 200), StartPosition = FormStartPosition.CenterParent, ShowInTaskbar = false };
+                informationWindow.Controls.Add(informationText);
+                informationWindow.Show(this);
+            }
+            else informationWindow.Activate();
+        }
+        void RefreshQueueLog()
+        {
+            var notices = new List<string>();
+            if (indexing) notices.Add("Indexing notes in the current scope...");
+            else if (missingRecoveryCount > 0) notices.Add(missingRecoveryCount + " interrupted decision(s) are outside this scope or have missing/changed sources. Use Recovery or export decisions and inspect Paratext history/notes.");
+            if (unreadableSources.Count > 0) notices.Add(unreadableSources.Count + " unreadable discussions in this session (see report).");
+            string[] warnings = session.Warnings.ToArray();
+            queueLog.Text = scopeLabel.Text + "\r\n\r\n" + (notices.Count == 0 ? "No queue notices." : String.Join("\r\n\r\n", notices)) +
+                "\r\n\r\nSESSION LOG\r\n" + (warnings.Length == 0 ? "No warnings recorded." : String.Join("\r\n\r\n", warnings));
+        }
         void UpdateScopeLabel()
         {
             scopeLabel.Text = "Scope: " + scope.Describe(owner.QueueBookCode);
             session.SetScope(scopeLabel.Text, items.Count, completed);
+            missingRecoveryCount = indexing ? 0 : progress.Outstanding().Count(r => !seen.Contains(r.Id));
+            RefreshQueueLog();
         }
         void ChangeScope(QueueScope selection)
         {
             if (busy) return;
             SaveDraft(); progress.SaveScope(selection);
             indexTimer.Stop(); navigationTimer.Stop(); draftTimer.Stop(); scope = selection;
-            items.Clear(); duplicateIds.Clear(); seen.Clear(); books.Clear(); current = null; position = -1; completed = 0; recoveryNotice = "";
+            items.Clear(); duplicateIds.Clear(); seen.Clear(); books.Clear(); current = null; position = -1; completed = 0;
             owner.HighlightTarget(null);
             foreach (int number in owner.QueueBooks().Where(scope.IncludesBook)) books.Enqueue(number);
             paused = false; pause.Text = "Pause"; indexing = true; UpdateScopeLabel();
@@ -314,20 +355,21 @@ namespace ParatextNoteSuggestions
                 {
                     var saved = progress.Get(c.StableId);
                     bool outstanding = saved != null && (saved.ResolutionPending || saved.Outcome == "Pending apply");
-                    if (c.Unreadable) session.AddWarning(c.DisplayReference + " - unreadable note discussion in an indexed book (" + (c.IsResolved ? "already resolved; may be outside status filter" : "unresolved; handle manually") + "). " + c.NoteText);
+                    if (c.Unreadable) {
+                        unreadableSources.Add(c.StableId);
+                        session.AddWarning(c.DisplayReference + " - unreadable note discussion in an indexed book (" + (c.IsResolved ? "already resolved; may be outside status filter" : "unresolved; handle manually") + "). " + c.NoteText);
+                    }
                     if (scope.RecoveryOnly ? !outstanding : (!scope.IncludesStatus(c.IsResolved) || !scope.IncludesCandidate(c))) continue;
                     if (!seen.Add(c.StableId)) duplicateIds.Add(c.StableId);
                     items.Add(c);
                 }
                 books.Dequeue();
                 heading.Text = owner.ProjectName + " - indexed " + items.Count + " proposals; " + books.Count + " books remaining";
+                RefreshQueueLog();
                 return;
             }
             indexTimer.Stop(); indexing = false;
-            int missing = progress.Outstanding().Count(r => !seen.Contains(r.Id));
-            if (missing > 0) recoveryNotice = "\r\n" + missing + " interrupted decision(s) are outside this scope or have missing/changed sources. Use Recovery or export decisions and inspect Paratext history/notes.";
             recovery.Text = "Recovery (" + progress.Outstanding().Count() + ")";
-            if (session.WarningCount > 0) recoveryNotice += "\r\n" + session.WarningCount + " unreadable discussions (see report).";
             SortItems();
             completed = items.Count(c => { var r = progress.Get(c.StableId); return r != null && r.Completed; });
             UpdateScopeLabel();
@@ -377,7 +419,7 @@ namespace ParatextNoteSuggestions
             if (current == null)
             {
                 owner.HighlightTarget(null);
-                heading.Text = owner.ProjectName + " - " + completed + " / " + items.Count + " reviewed" + recoveryNotice;
+                heading.Text = owner.ProjectName + " - " + completed + " / " + items.Count + " reviewed";
                 source.Text = "End of this pass. Resume to revisit items left for later, or close and reopen to scan for new notes.";
                 original.Clear(); replacement.Clear(); comment.Clear();
                 paused = true; pause.Text = "Resume"; EnableActions();
@@ -416,7 +458,7 @@ namespace ParatextNoteSuggestions
             populating = false;
             try { loadedContext = owner.CapturePassage(current, (ContentRegion)region.SelectedItem); } catch { loadedContext = ""; }
             if (restore != null && restore.BeforeContext.Length > 0) loadedContext = restore.BeforeContext;
-            heading.Text = current.DisplayReference + " | " + current.Proposal.Pass + " | " + current.Proposal.Category + "\r\n" + (position + 1) + " / " + items.Count + " | " + completed + " reviewed | " + (current.IsResolved ? "Resolved" : "Unresolved") + (previous == null ? "" : " | " + previous.Outcome) + recoveryNotice;
+            heading.Text = current.DisplayReference + " | " + current.Proposal.Pass + " | " + current.Proposal.Category + "\r\n" + (position + 1) + " / " + items.Count + " | " + completed + " reviewed | " + (current.IsResolved ? "Resolved" : "Unresolved") + (previous == null ? "" : " | " + previous.Outcome);
             if (!blocked) status.Text = ResolutionPending() ? "Decision saved locally. Retry note resolution to finish; the Scripture correction will not be repeated." : Pending() ? "An earlier apply did not finish recording. Inspect Paratext history and the passage, then confirm completed manually or confirm no edit before retrying." : "Review the correction, then apply or reject.";
             else status.Text = "Source changed, unavailable, or duplicate identity. Automatic Apply is blocked. Inspect in Paratext; leave for later or record a commented manual decision.";
             if (current.Unreadable) status.Text = "Paratext cannot read this discussion. Decisions are blocked for this note; inspect/fix it in Paratext or Leave for later. Other notes can continue.";
@@ -688,11 +730,11 @@ namespace ParatextNoteSuggestions
                         if (now.Before != preview.Before || now.After != preview.After) throw new InvalidOperationException("Passage changed since preview; review again.");
                         var record = new ReviewRecord { Id = item.StableId, Outcome = "Applied", Reference = item.DisplayReference,
                             Category = item.Proposal.Category, Original = item.Proposal.Original, Replacement = item.Proposal.Suggested,
-                            Comment = decisionComment.Trim(), Region = "Body", Discussion = item.DiscussionKey,
+                            Comment = decisionComment.Trim(), Region = item.Proposal.Region.ToString(), Discussion = item.DiscussionKey,
                             SessionId = session.Id, AuditId = Guid.NewGuid().ToString("N"), Reviewer = owner.Reviewer, Actor = owner.Reviewer,
                             DecisionUtc = DateTime.UtcNow.ToString("O"), ActionUtc = DateTime.UtcNow.ToString("O"), Resolution = "Pending",
                             QueueScope = scope.Describe(owner.QueueBookCode), SourceNote = item.NoteText };
-                        service.Apply(item, record.Original, record.Replacement, ContentRegion.Body, reviewedSelection, false, delegate {
+                        service.Apply(item, record.Original, record.Replacement, item.Proposal.Region, reviewedSelection, false, delegate {
                             if (owner.Reviewer != record.Reviewer) throw new InvalidOperationException("Paratext user changed; review again.");
                             var intent = ReviewRecord.FromXml(record.ToXml()); intent.Outcome = "Pending apply";
                             progress.Save(intent); submitted = true; session.Track(intent);

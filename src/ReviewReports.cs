@@ -62,6 +62,7 @@ namespace ParatextNoteSuggestions
         readonly DateTime started;
         readonly List<string> warnings = new List<string>();
         public int WarningCount { get { return warnings.Count; } }
+        public IEnumerable<string> Warnings { get { return warnings.ToArray(); } }
         string lastDigest = "", lastReport = "";
         string currentScope = "Scope not recorded (older session)";
         int currentTotal, currentReviewed;

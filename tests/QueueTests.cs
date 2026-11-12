@@ -605,7 +605,7 @@ namespace NoteSuggestionsTests
                     {
                         q.Size = size; Application.DoEvents();
                         q.WindowState = FormWindowState.Minimized; Application.DoEvents(); q.WindowState = FormWindowState.Normal; Application.DoEvents();
-                        foreach (string name in new[] { "heading", "scopeLabel", "region", "original", "replacement", "commentPreset", "comment", "deletion", "reviewed", "manual", "previous", "next", "back", "apply", "reject", "pause", "status" })
+                        foreach (string name in new[] { "heading", "scopeLabel", "region", "original", "replacement", "commentPreset", "comment", "deletion", "reviewed", "manual", "previous", "next", "back", "apply", "reject", "pause", "information" })
                         {
                             Control control = Field<Control>(q, name);
                             var bounds = q.RectangleToClient(control.RectangleToScreen(control.ClientRectangle));
@@ -717,7 +717,7 @@ namespace NoteSuggestionsTests
                 using (var p = new ReviewProgress(root, f.ProjectId)) p.Save(new ReviewRecord { Id = c.StableId, Outcome = "Pending apply", Original = c.Proposal.Original, Replacement = c.Proposal.Suggested, Region = "Body" });
                 using (var q = Queue(f, root))
                 {
-                    Scope(q, Books(NoteStatusFilter.Unresolved, 40)); Check(Field<Label>(q, "heading").Text.Contains("outside this scope"));
+                    Scope(q, Books(NoteStatusFilter.Unresolved, 40)); Check(Field<TextBox>(q, "queueLog").Text.Contains("outside this scope"));
                     Scope(q, new QueueScope { RecoveryOnly = true, Status = NoteStatusFilter.All });
                     Check(Field<NoteCandidate>(q, "current").Book == 1 && !Field<Button>(q, "apply").Enabled);
                     Call(q, "Browse", 1); Field<CheckBox>(q, "reviewed").Checked = true; Call(q, "Decide", "Applied");
@@ -838,7 +838,7 @@ namespace NoteSuggestionsTests
                 using (var p = new ReviewProgress(root, f.ProjectId)) f.Replies.Add(Fixture.Comment(NoteService.DecisionReply(p.Get(c.StableId))));
                 f.Resolved = true;
                 using (var q = Queue(f, root)) {
-                    Check(Field<NoteCandidate>(q, "current") == null && Field<Label>(q, "heading").Text.Contains("outside this scope"));
+                    Check(Field<NoteCandidate>(q, "current") == null && Field<TextBox>(q, "queueLog").Text.Contains("outside this scope"));
                     Call(q, "ChangeScope", new QueueScope { RecoveryOnly = true, Status = NoteStatusFilter.All });
                     while (Field<bool>(q, "indexing")) Call(q, "IndexBook");
                     Check(Field<NoteCandidate>(q, "current") != null); Call(q, "FinishResolution"); Check(f.Resolves == 0 && f.Writes == 0); q.Close();
@@ -867,7 +867,7 @@ namespace NoteSuggestionsTests
                 var f = new Fixture(); var c = f.Service().ReadQueueBook(1).Single(); string root = Root();
                 using (var p = new ReviewProgress(root, f.ProjectId)) p.Save(new ReviewRecord { Id = c.StableId, Outcome = "Rejected", Resolution = "Pending", Discussion = c.DiscussionKey });
                 f.Notes.Clear();
-                using (var q = Queue(f, root)) { Check(Field<Label>(q, "heading").Text.Contains("missing/changed")); q.Close(); }
+                using (var q = Queue(f, root)) { Check(Field<TextBox>(q, "queueLog").Text.Contains("missing/changed")); q.Close(); }
                 using (var p = new ReviewProgress(root, f.ProjectId)) Check(p.Outstanding().Single().Id == c.StableId);
             });
             test("queue identity survives discussion replies", delegate {

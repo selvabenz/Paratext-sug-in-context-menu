@@ -53,6 +53,8 @@ Choose **Bulk resolve...** to preview filtered unfinished proposals. Select the 
 
 Navigation settings, report access and retry controls are on **Tools**. Native docking remains unavailable through the installed public API.
 
+Use **Log** for recovery notices, unreadable-discussion counts and full session warnings. Click **ⓘ** for the current review status and saved bulk-skip reason. The information window follows the current proposal and can stay open beside the queue. Neither view changes Scripture or records a decision.
+
 ## Comment dropdown and HTML reports
 
 Choose one of five reusable phrases from the **Decision comment** dropdown, then edit or add text in the box below if needed. Selecting a phrase does not decide the note; use Apply/Reject as usual. Reject still requires a nonempty comment.

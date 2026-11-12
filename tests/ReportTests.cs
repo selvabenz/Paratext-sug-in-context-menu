@@ -42,6 +42,10 @@ namespace NoteSuggestionsTests
                 using (var q = QueueTests.Queue(f, root))
                 {
                     Check(Field<ReviewSession>(q, "session").WarningCount == 1 && !Field<NoteCandidate>(q, "current").Unreadable);
+                    Check(Field<TextBox>(q, "queueLog").Text.Contains("1 unreadable discussions") && !Field<Label>(q, "heading").Text.Contains("unreadable"));
+                    Field<ReviewSession>(q, "session").AddWarning("Bulk correction skipped: unrelated warning");
+                    Call(q, "RefreshQueueLog");
+                    Check(Field<TextBox>(q, "queueLog").Text.Contains("1 unreadable discussions") && !Field<TextBox>(q, "queueLog").Text.Contains("2 unreadable discussions"));
                     Field<TextBox>(q, "comment").Text = "Reviewed readable note"; Call(q, "Decide", "Rejected"); Check(f.Resolved && f.Resolves == 1); q.Close();
                 }
                 using (var p = new ReviewProgress(root, f.ProjectId)) Check(File.ReadAllText(ReviewSession.Latest(p.DirectoryPath)).Contains("Manual attention: unreadable"));

@@ -316,10 +316,11 @@ namespace ParatextNoteSuggestions
             bool literal = reviewedSelection ? p.ReviewedBulkLiteral &&
                 TamilLiteral(p.Original, category == "Punctuation") && TamilLiteral(p.Suggested, category == "Punctuation") :
                 p.Route == ProposalRoute.Apply && !p.ReviewerDecision && TamilWords(p.Original) && TamilWords(p.Suggested);
-            if (p.Category != category || !literal || p.Region != ContentRegion.Body || p.AnchorWarning ||
-                fresh.FirstVerse != fresh.LastVerse || fresh.IsResolved ||
+            if (p.Category != category || !literal || p.Region == ContentRegion.Structure ||
+                (!reviewedSelection && p.Region != ContentRegion.Body) || p.AnchorWarning ||
+                fresh.Book != fresh.EndBook || fresh.CrossChapter || fresh.FirstVerse != fresh.LastVerse || fresh.IsResolved ||
                 (p.Route != ProposalRoute.Apply && p.Route != ProposalRoute.Review))
-                throw new InvalidOperationException("Bulk " + category + " requires one literal Tamil body-text correction in one verse, without ambiguous instructions, competing proposals or anchor warnings. Review this proposal individually.");
+                throw new InvalidOperationException("Bulk " + category + " requires one literal Tamil correction in a supported region, without ambiguous instructions, competing proposals or anchor warnings. Non-body corrections require the selected Scripture-edits preview. Review this proposal individually.");
         }
         public PassageEvidence PreviewBulkCorrection(NoteCandidate candidate, string category, bool reviewedSelection = false)
         {
@@ -329,9 +330,10 @@ namespace ParatextNoteSuggestions
             var fresh = Fresh(candidate);
             var p = fresh.Proposal;
             ValidateBulkCorrection(fresh, category, reviewedSelection);
-            if (!project.CanEdit(plugin, candidate.Book, candidate.Chapter)) throw new InvalidOperationException("Editing permission is unavailable.");
-            var tokens = project.GetUSFMTokens(candidate.Book, candidate.Chapter).ToList();
-            var match = ExactEditor.Locate(TokenMapping.Parts(tokens), ContentRegion.Body, candidate.Chapter, candidate.FirstVerse, candidate.LastVerse,
+            int scope = p.Region == ContentRegion.Introduction ? 0 : candidate.Chapter;
+            if (!project.CanEdit(plugin, candidate.Book, scope)) throw new InvalidOperationException("Editing permission is unavailable.");
+            var tokens = project.GetUSFMTokens(candidate.Book, scope).ToList();
+            var match = ExactEditor.Locate(TokenMapping.Parts(tokens), p.Region, candidate.Chapter, candidate.FirstVerse, candidate.LastVerse,
                 p.Original, p.Suggested, p.Original == fresh.AnchorText ? fresh.Before : "", p.Original == fresh.AnchorText ? fresh.After : "");
             var old = tokens[match.TokenIndex] as IUSFMTextToken;
             bool wordStart = WordCharacter(p.Original, 0), wordEnd = WordCharacter(p.Original, p.Original.Length - 1);
@@ -339,15 +341,29 @@ namespace ParatextNoteSuggestions
                 (wordEnd && match.Start + match.Length < old.Text.Length && WordCharacter(old.Text, match.Start + match.Length)))
                 throw new InvalidOperationException("Bulk corrections must match complete words; review this target individually.");
             // A formatting boundary can split a word without putting whitespace in either token.
-            var body = TokenMapping.Parts(tokens).Where(t => t.Region == ContentRegion.Body && t.Chapter == candidate.Chapter && t.Verse == candidate.FirstVerse && t.Text.Length > 0).ToList();
-            var previous = body.LastOrDefault(t => t.TokenIndex < match.TokenIndex);
-            var next = body.FirstOrDefault(t => t.TokenIndex > match.TokenIndex);
-            if ((wordStart && match.Start == 0 && previous != null && WordCharacter(previous.Text, previous.Text.Length - 1)) ||
-                (wordEnd && match.Start + match.Length == old.Text.Length && next != null && WordCharacter(next.Text, 0)))
+            var regionParts = TokenMapping.Parts(tokens).Where(t => t.Region == p.Region &&
+                (p.Region == ContentRegion.Introduction || (t.Chapter == candidate.Chapter && t.Verse == candidate.FirstVerse)) && t.Text.Length > 0).ToList();
+            var previous = regionParts.LastOrDefault(t => t.TokenIndex < match.TokenIndex);
+            var next = regionParts.FirstOrDefault(t => t.TokenIndex > match.TokenIndex);
+            if ((wordStart && match.Start == 0 && previous != null && InlineAdjacent(tokens, previous.TokenIndex, match.TokenIndex, p.Region) && WordCharacter(previous.Text, previous.Text.Length - 1)) ||
+                (wordEnd && match.Start + match.Length == old.Text.Length && next != null && InlineAdjacent(tokens, match.TokenIndex, next.TokenIndex, p.Region) && WordCharacter(next.Text, 0)))
                 throw new InvalidOperationException("A word may cross a formatting boundary; review this target individually.");
-            string before = Passage(tokens, candidate, ContentRegion.Body);
+            string before = Passage(tokens, candidate, p.Region);
             tokens[match.TokenIndex] = new ChangedTextToken(old, ExactEditor.Replace(old.Text, match));
-            return new PassageEvidence { Before = before, After = Passage(tokens, candidate, ContentRegion.Body), Scope = "Full anchored passage (USFM)" };
+            return new PassageEvidence { Before = before, After = Passage(tokens, candidate, p.Region), Scope = p.Region == ContentRegion.Introduction ? "Full book introduction (USFM)" : "Full anchored passage (USFM)" };
+        }
+        static bool InlineAdjacent(IList<IUSFMToken> tokens, int left, int right, ContentRegion region)
+        {
+            // Separate paragraphs/notes are independent. In body text, an embedded
+            // note does not establish a word boundary; keep split-word protection.
+            for (int i = left + 1; i < right; i++) {
+                var marker = tokens[i] as IUSFMMarkerToken;
+                if (marker == null) continue;
+                if (marker.Type == MarkerType.Paragraph || marker.Type == MarkerType.Verse || marker.Type == MarkerType.Chapter) return false;
+                if ((region == ContentRegion.Footnote || region == ContentRegion.CrossReference) &&
+                    Regex.IsMatch(marker.Marker.TrimStart('\\'), @"^(?:f|fe|ef|x|ex)\*?$")) return false;
+            }
+            return true;
         }
         static bool TamilWords(string text)
         {
@@ -359,7 +375,7 @@ namespace ParatextNoteSuggestions
             const string punctuation = ".,;:!?\u2018\u2019\u201c\u201d\u2013\u2014-'\"";
             return !String.IsNullOrWhiteSpace(text) && text == text.Trim() &&
                 (punctuationOnly || text.Any(c => c >= '\u0b80' && c <= '\u0bff' && Char.IsLetter(c))) &&
-                text.All(c => c == ' ' || punctuation.IndexOf(c) >= 0 ||
+                text.All(c => c == ' ' || (c >= '0' && c <= '9') || punctuation.IndexOf(c) >= 0 ||
                     (c >= '\u0b80' && c <= '\u0bff' && (Char.IsLetter(c) || Char.GetUnicodeCategory(c) == System.Globalization.UnicodeCategory.NonSpacingMark || Char.GetUnicodeCategory(c) == System.Globalization.UnicodeCategory.SpacingCombiningMark)));
         }
         static bool WordCharacter(string text, int index)
@@ -387,7 +403,7 @@ namespace ParatextNoteSuggestions
                 if (writeLock == null) throw new InvalidOperationException("Paratext could not grant a Scripture write lock. Try again when the passage is available.");
                 var fresh = Fresh(candidate);
                 if (reviewedBulkCorrection) {
-                    if (!reviewed || !SupportsReviewedBulk(fresh.Proposal.Category) || original != fresh.Proposal.Original || replacement != fresh.Proposal.Suggested || region != ContentRegion.Body)
+                    if (!reviewed || !SupportsReviewedBulk(fresh.Proposal.Category) || original != fresh.Proposal.Original || replacement != fresh.Proposal.Suggested || region != fresh.Proposal.Region)
                         throw new InvalidOperationException("A reviewed bulk correction must use the exact approved proposal.");
                     ValidateBulkCorrection(fresh, candidate.Proposal.Category, true);
                 }
