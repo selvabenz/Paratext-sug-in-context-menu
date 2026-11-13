@@ -31,6 +31,8 @@ The installed API has fixed plugin menu registrations. Dynamic corrections appea
 
 Open the intended Scripture project, then right-click **Review note queue…** (also in Tools). It indexes all unresolved structured AI-QA proposals, one book at a time. The queue window is modeless: move or minimize it while checking references. No timer applies corrections or advances notes.
 
+For inline review, enable **Highlight queued note target** in the project's View menu. The current proposal shows a green suggestion label before its yellow Original highlight. Right-click either one to **Apply suggestion...**, **Reject suggestion...**, or **Ignore for now (leave unresolved)**. Apply and Reject require a decision comment; Apply also requires review acknowledgement. Ignore saves the draft and moves on without changing Scripture or resolving the note. Complex corrections and edited queue drafts must use the queue controls. Hover over a shortened label for its complete text. Only exact, unique targets within one verse are marked.
+
 1. Inspect the **Review** and **Source discussion** tabs. Verify the displayed project, passage and content region. Edit the chosen literal correction if necessary.
 2. Check **I reviewed this exact correction**, then **Apply and next**. Only a successfully verified USFM write records Applied and advances. Apply comments are optional.
 3. To reject, enter a reason and click **Reject and next**. To record work performed manually in Paratext, or a no-change decision, enter a comment, check review, and select **Completed manually / no change**.

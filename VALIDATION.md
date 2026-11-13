@@ -94,3 +94,9 @@ The development build passed **206 synthetic checks, zero failed** against the i
 Rendered Review, Log and information windows were inspected: `artifacts/bin/queue-review-information.png`, `artifacts/bin/queue-log.png`, and `artifacts/bin/queue-information-details.png`. Existing compact-layout checks passed at all three test sizes.
 
 Installed with Paratext closed using the checksum-verifying installer and official plugin-cache updater. Installed and tested plugin SHA-256: `8169B2CE0D505846487ECF059930D1535126D057863C01C7B5810358B35EB762`. Previous plugin backup: `artifacts/install-queue-information-9f98f32f41744579a5a5857ac38b0ed3/ParatextNoteSuggestions.previous.ptxplg`. Installation and tests did not edit production Scripture or notes. Live-host acceptance of the new regional bulk workflow, export and Send/Receive remain pending.
+
+## Inline suggestion actions - 13 November 2026
+
+The final installed build passed **215 synthetic checks, zero failed**, plus real Paratext 9.5.110.1 NSTest acceptance for Tamil inline labels, tooltips, right-click menus, required comment/review gating, Apply, Reject, Ignore, advancement, annotation cleanup and restart persistence. All **763 protected Scripture/note files outside NSTest remain byte-for-byte unchanged**. Installed/build SHA-256: `1ACC17E0E01CECC570046D23915A52B05F9F02D978F49BD82126409D7E91FEF2`.
+
+See [the detailed host record](TARGET_HIGHLIGHT_PLAN.md) and [issue #6](https://github.com/selvabenz/Paratext-sug-in-context-menu/issues/6). Local fixture backups, checksums, final build log and result data are under ignored `artifacts/inline-host/`. This acceptance covers inline queue actions; the regional bulk, export, synchronization and full DPI/monitor acceptance limits above remain in effect.

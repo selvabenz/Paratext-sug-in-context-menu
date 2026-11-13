@@ -1,5 +1,23 @@
 # Scripture target highlighting
 
+## Inline suggestion actions, 13 November 2026
+
+Tracked and accepted in [issue #6](https://github.com/selvabenz/Paratext-sug-in-context-menu/issues/6).
+
+The current queue annotation now renders a compact green image label containing Suggested before the exact Original highlight. Paratext's public `IPluginAnnotation.Icon` accepts an image-file path, and its `Click` callback supplies the mouse button and screen position. The full suggestion is available in the icon tooltip and decision confirmation. Long labels use an ellipsis; no preview text is inserted into Scripture.
+
+Right-click either the label or highlight to Apply, Reject, Ignore for now, or return to the queue. Apply/Reject require a decision comment, with explicit review acknowledgement for Apply. They reuse the queue's existing decision, reply, resolution and interrupted-write recovery path. Ignore preserves the draft and advances, leaving Scripture and the source discussion unchanged. Edited drafts and complex routes require the queue's normal review controls. Stale annotations, menus and confirmations cannot retarget the next item. Closing the queue detaches the callback and clears the annotation.
+
+Build validation: **215 synthetic checks passed, zero failed**, with warnings as errors against installed interfaces 2.0.100.0. Nine new checks cover label rendering, full tooltips, right-click dispatch, the actual context menu, stale clicks, verified Apply, Reject, Ignore, edited drafts, pause, interrupted-write recovery and disposal. The suite requires filesystem access for the existing atomic replacement saves; the restricted run was stopped after hitting that documented limitation. Final log: ignored `artifacts/inline-host/final-build.log`. Existing missing/ambiguous/cross-verse exclusions remain unchanged.
+
+Installed with Paratext closed using the checksum-checked installer and official plugin-cache updater. Final installed/build SHA-256: `1ACC17E0E01CECC570046D23915A52B05F9F02D978F49BD82126409D7E91FEF2`. The prior binary is backed up at ignored `artifacts/inline-host/ParatextNoteSuggestions.previous.ptxplg`.
+
+In Paratext 9.5.110.1, enabled the annotation layer in disposable NSTest and visually verified the green Tamil suggestion, exact yellow Original highlight, full tooltip and right-click menu on both the label and text. Apply was disabled until both comment and review acknowledgement were supplied. Reject required a comment. Confirmations now have their own taskbar entry and initial comment focus, including when the queue is minimized. The final installed build applied GEN 1:7, rejected GEN 1:5 without a Scripture edit, and ignored GEN 1:6 without a reply or resolution. An earlier iteration applied GEN 1:4 before the confirmation usability adjustment. Each Apply/Reject thread has exactly one attributed, Tamil-containing decision reply and a resolved terminal status; Ignore remains `todo` with zero replies. Advancement refreshed the target, and closing the queue cleared its annotations. Canceling an incomplete Reject left its note unchanged.
+
+File verification after a normal shutdown confirms only the two approved synthetic phrase changes, plus removal of the single blank line used when appending the GEN 1:7 fixture through Paratext's normal USFM serialization. Rejected and ignored phrases remain unchanged. All **763 protected Scripture/note files outside NSTest are byte-for-byte unchanged**. Evidence: ignored `artifacts/inline-host/verified-result.json`, fixture backups and production checksum baseline. No production decisions or Send/Receive were performed. This does not establish the complete DPI/monitor hardware matrix or synchronization acceptance.
+
+After restarting the final installed build, the saved filter reopened with exactly one unfinished item: the ignored GEN 1:6 proposal and its retained draft. Recovery showed zero pending items. Applied/rejected fixtures remained resolved and were not replayed; saved Scripture and replies passed the same file verification again. The queue was closed, clearing its annotations, and Paratext was left open in NSTest.
+
 ## Plan
 
 1. Use Paratext 9.5's public Scripture annotation API to mark the current queue proposal's `Original` text in the pinned project's editor. The public API cannot move the editing caret or programmatically enable an annotation layer.

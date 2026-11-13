@@ -208,6 +208,7 @@ namespace ParatextNoteSuggestions
                 if (busy) { e.Cancel = true; return; }
                 try { SaveDraft(); SaveLayout(); GenerateReports("Closed", true); } catch (Exception ex) { e.Cancel = true; Fail(ex); }
             };
+            owner.SetInlineMenuHandler(ShowInlineMenu);
             EnableActions();
         }
         protected override void Dispose(bool disposing)
@@ -217,10 +218,95 @@ namespace ParatextNoteSuggestions
                 resourcesDisposed = true; indexTimer.Dispose(); draftTimer.Dispose(); navigationTimer.Dispose(); informationTip.Dispose();
                 status.Dispose();
                 if (informationWindow != null) informationWindow.Dispose();
+                if (inlineMenu != null) inlineMenu.Dispose();
+                owner.SetInlineMenuHandler(null);
                 owner.HighlightTarget(null);
                 if (progress != null) progress.Dispose();
             }
             base.Dispose(disposing);
+        }
+        ContextMenuStrip inlineMenu;
+        bool IsInlineTarget(NoteCandidate item)
+        {
+            return !IsDisposed && !Disposing && current != null && Object.ReferenceEquals(current, item) &&
+                !busy && !paused && !indexing;
+        }
+        bool CanInlineDecision(NoteCandidate item, string outcome)
+        {
+            if (!IsInlineTarget(item)) return false;
+            EnableActions();
+            if (outcome == "Ignored") return later.Enabled;
+            if (item.IsResolved || item.Unreadable || blocked || duplicateIds.Contains(item.StableId) || Pending() ||
+                (progress.Get(item.StableId) ?? new ReviewRecord()).Completed) return false;
+            if (outcome == "Rejected") return true;
+            return outcome == "Applied" && item.Proposal.Route == ProposalRoute.Apply && !deletion.Checked &&
+                original.Text == item.Proposal.Original && replacement.Text == item.Proposal.Suggested &&
+                replacement.Text.Length > 0 && region.SelectedItem != null && (ContentRegion)region.SelectedItem == item.Proposal.Region;
+        }
+        void ShowInlineMenu(NoteCandidate item, Point location)
+        {
+            if (!IsInlineTarget(item)) return;
+            if (inlineMenu != null) inlineMenu.Dispose();
+            inlineMenu = new ContextMenuStrip { ShowImageMargin = false };
+            inlineMenu.Items.Add(new ToolStripMenuItem("Suggested: " + NoteParser.Preview(item.Proposal.Suggested, 65).Replace("&", "&&")) { Enabled = false });
+            inlineMenu.Items.Add(new ToolStripSeparator());
+            var accept = new ToolStripMenuItem("Apply suggestion...") { Enabled = CanInlineDecision(item, "Applied") };
+            var decline = new ToolStripMenuItem("Reject suggestion...") { Enabled = CanInlineDecision(item, "Rejected") };
+            var ignore = new ToolStripMenuItem("Ignore for now (leave unresolved)") { Enabled = CanInlineDecision(item, "Ignored") };
+            accept.Click += delegate { PromptInlineDecision(item, "Applied"); };
+            decline.Click += delegate { PromptInlineDecision(item, "Rejected"); };
+            ignore.Click += delegate { CompleteInlineDecision(item, "Ignored", ""); };
+            inlineMenu.Items.Add(accept); inlineMenu.Items.Add(decline); inlineMenu.Items.Add(ignore);
+            inlineMenu.Items.Add(new ToolStripSeparator());
+            inlineMenu.Items.Add("Review source / edit correction in queue", null, delegate {
+                if (IsInlineTarget(item)) { Show(); WindowState = FormWindowState.Normal; Activate(); }
+            });
+            inlineMenu.Show(location);
+        }
+        void PromptInlineDecision(NoteCandidate item, string outcome)
+        {
+            if (!CanInlineDecision(item, outcome)) return;
+            using (var dialog = new Form { Text = outcome == "Applied" ? "Apply note suggestion" : "Reject note suggestion",
+                Font = Font, AutoScaleMode = AutoScaleMode.Dpi, StartPosition = FormStartPosition.CenterParent,
+                // An inline action can originate while this queue is minimized. Keep its
+                // confirmation reachable independently through the taskbar and Alt+Tab.
+                Size = new Size(620, 560), MinimumSize = new Size(440, 400), ShowInTaskbar = true, MinimizeBox = false, MaximizeBox = false })
+            {
+                var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 5, Padding = new Padding(10) };
+                layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+                layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+                layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 80));
+                layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                var preview = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill,
+                    Text = item.DisplayReference + " | " + item.Proposal.Category + "\r\n\r\nOriginal: " + item.Proposal.Original +
+                    "\r\nSuggested: " + item.Proposal.Suggested + "\r\n\r\n" + item.NoteText };
+                var decisionComment = new TextBox { Multiline = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill, Text = comment.Text };
+                var acknowledge = new CheckBox { Text = "I reviewed this exact correction", AutoSize = true, Visible = outcome == "Applied" };
+                var confirm = new Button { Text = outcome == "Applied" ? "Apply" : "Reject", AutoSize = true, DialogResult = DialogResult.OK };
+                var cancel = new Button { Text = "Cancel", AutoSize = true, DialogResult = DialogResult.Cancel };
+                Action enable = delegate { confirm.Enabled = decisionComment.Text.Trim().Length > 0 && (outcome != "Applied" || acknowledge.Checked); };
+                decisionComment.TextChanged += delegate { enable(); }; acknowledge.CheckedChanged += delegate { enable(); }; enable();
+                var buttons = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill };
+                buttons.Controls.Add(confirm); buttons.Controls.Add(cancel);
+                layout.Controls.Add(preview, 0, 0); layout.Controls.Add(new Label { Text = "Decision comment (required)", AutoSize = true }, 0, 1);
+                layout.Controls.Add(decisionComment, 0, 2); layout.Controls.Add(acknowledge, 0, 3); layout.Controls.Add(buttons, 0, 4);
+                dialog.Controls.Add(layout); dialog.AcceptButton = confirm; dialog.CancelButton = cancel;
+                dialog.Shown += delegate { decisionComment.Focus(); decisionComment.SelectionStart = decisionComment.TextLength; };
+                if (dialog.ShowDialog(this) == DialogResult.OK && confirm.Enabled)
+                    CompleteInlineDecision(item, outcome, decisionComment.Text);
+            }
+        }
+        void CompleteInlineDecision(NoteCandidate item, string outcome, string decisionComment)
+        {
+            // Menus and dialogs capture their proposal; never retarget a stale click to the next item.
+            if (!CanInlineDecision(item, outcome)) return;
+            if (outcome == "Ignored") { Guard(delegate { SaveDraft(); Next(); }); return; }
+            if (decisionComment.Trim().Length == 0) return;
+            comment.Text = decisionComment;
+            if (outcome == "Applied") reviewed.Checked = true;
+            Decide(outcome);
         }
         static TextBox Box(int height) { return new TextBox { Multiline = true, ScrollBars = ScrollBars.Vertical, Height = height, Dock = DockStyle.Top }; }
         static Button Button(string text) { var button = new Button { Text = text, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, FlatStyle = FlatStyle.Flat, BackColor = Color.White, Padding = new Padding(4, 1, 4, 1), Margin = new Padding(2), Cursor = Cursors.Hand }; button.FlatAppearance.BorderColor = Color.FromArgb(200, 208, 217); return button; }

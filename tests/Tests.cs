@@ -250,6 +250,7 @@ namespace NoteSuggestionsTests
             QueueTests.Run(Test);
             TargetingTests.Run(Test);
             QueueInformationTests.Run(Test);
+            InlineSuggestionTests.Run(Test);
             foreach(string category in Proposal.Categories)
             {
                 string captured=category;

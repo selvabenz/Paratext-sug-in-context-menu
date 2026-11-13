@@ -106,6 +106,11 @@ namespace ParatextNoteSuggestions
             var suggestions = plugin as NoteSuggestionsPlugin;
             if (suggestions != null) suggestions.HighlightFor(project).SetTarget(item);
         }
+        public void SetInlineMenuHandler(Action<NoteCandidate, System.Drawing.Point> handler)
+        {
+            var suggestions = plugin as NoteSuggestionsPlugin;
+            if (suggestions != null) suggestions.HighlightFor(project).ContextMenuRequested = handler;
+        }
         public bool NavigationVisible(NoteCandidate item)
         {
             return host.AllOpenWindows.Any(w => w.Project != null && w.Project.ID == projectId && w.VerseRef != null &&

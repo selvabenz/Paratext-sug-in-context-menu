@@ -1,4 +1,13 @@
-﻿# Installed development update — 6 November 2026
+﻿# Installed development update - 13 November 2026
+
+- Show the current queue suggestion as a green inline label before its exact yellow Original highlight. Right-click the label or text to Apply, Reject or Ignore for now.
+- Apply/Reject use the existing verified write, attributed reply, thread resolution and recovery flow. Ignore preserves the draft and leaves the note unresolved. Stale clicks cannot decide another proposal.
+- Keep comment confirmations reachable from the taskbar when the queue is minimized; focus the comment field when they open.
+- All 215 synthetic checks pass. Visual acceptance in Paratext 9.5.110.1 NSTest passed for the label, tooltip, menu, Apply/Reject/Ignore, advancement and annotation cleanup. All 763 protected Scripture/note files outside NSTest remain unchanged.
+- Installed SHA-256: `1ACC17E0E01CECC570046D23915A52B05F9F02D978F49BD82126409D7E91FEF2`. See [the validation record](TARGET_HIGHLIGHT_PLAN.md) for scope and remaining DPI/synchronization limits.
+
+
+# Installed development update — 6 November 2026
 
 - Save attributed decision replies in original Paratext note discussions, verify persistence before resolution, and avoid duplicate replies on retry.
 - Add persisted category/discussion search and selectable bulk manual/no-change resolution with a required shared comment. Bulk mode does not edit Scripture.
