@@ -12,6 +12,8 @@ Get the package from [GitHub Releases](https://github.com/selvabenz/Paratext-sug
 
 The user's screenshot shows QA project notes with `Original:`, `Suggested:`, and `Reason:` fields. The menu should surface the existing `Suggested:` correction for the relevant passage. Automatically generating suggestions is outside the initial scope.
 
+See [the 18 November review queue fix report](REVIEW_QUEUE_FIX_REPORT.md) for development changes to progress feedback, completion popups, scrolling groups, non-body targeting and reviewer attribution, including validation limits.
+
 ## Review thousands of notes
 
 Choose **Review note queue…** in the Scripture right-click or Tools menu. The modeless queue scans unresolved AI-QA proposals across the selected project in Scripture order and opens each passage. Read the full discussion in its tab, choose a literal correction, check the review box, then **Apply and next**. **Reject and next** requires a comment. Nothing advances on a timer.

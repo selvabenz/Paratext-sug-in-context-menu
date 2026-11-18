@@ -79,13 +79,8 @@ namespace ParatextNoteSuggestions
         }
         public void ScrollProjectTo(NoteCandidate item)
         {
-            // The saved optional group can differ from the project's group after layout changes.
-            // Read the activated project window, never an unrelated reference project's group.
-            var active = host.ActiveWindowState;
-            var window = active != null && active.Project != null && active.Project.ID == projectId ? active :
-                host.AllOpenWindows.FirstOrDefault(w => w.Project != null && w.Project.ID == projectId);
-            if (window != null && window.SyncReferenceGroup != SyncReferenceGroup.None && window.SyncReferenceGroup != NavigationGroup)
-                host.SetReferenceForSyncGroup(item.TargetReference, window.SyncReferenceGroup);
+            // None means no broadcast. Never move a second group selected by an
+            // unrelated/previously active project window.
             if (NavigationGroup != SyncReferenceGroup.None) host.SetReferenceForSyncGroup(item.TargetReference, NavigationGroup);
         }
         public void BeginReturnToPassage(NoteCandidate item)
@@ -97,7 +92,12 @@ namespace ParatextNoteSuggestions
             // This also works for an editor outside the synchronized scroll groups.
             var adjacent = item.TargetReference.GetPreviousVerse(project);
             if (adjacent == null || SameReference(adjacent, item.TargetReference)) adjacent = item.TargetReference.GetNextVerse(project);
-            host.OpenTextWindowFor(project, OpenWindowBehavior.UseExisting, adjacent ?? item.TargetReference);
+            var revealReference = adjacent ?? item.TargetReference;
+            host.OpenTextWindowFor(project, OpenWindowBehavior.UseExisting, revealReference);
+            // Grouped editors follow the group's reference. Opening a neighbouring
+            // verse alone does not change that reference; broadcasting only the
+            // final (already selected) target can therefore leave it off-screen.
+            if (NavigationGroup != SyncReferenceGroup.None) host.SetReferenceForSyncGroup(revealReference, NavigationGroup);
         }
         static bool SameReference(IVerseRef left, IVerseRef right)
         { return left.BookNum == right.BookNum && left.ChapterNum == right.ChapterNum && left.VerseNum == right.VerseNum; }
@@ -136,6 +136,9 @@ namespace ParatextNoteSuggestions
         }
         string Passage(List<IUSFMToken> tokens, NoteCandidate item, ContentRegion region)
         {
+            // Include heading tokens carrying the preceding verse's reference in
+            // approved before/after evidence as well as in exact target matching.
+            if (region == ContentRegion.Heading) return project.ConvertToUSFMString(tokens);
             var context = region == ContentRegion.Introduction
                 ? tokens.TakeWhile(t => !(t is IUSFMMarkerToken) || ((IUSFMMarkerToken)t).Type != MarkerType.Chapter).ToList()
                 : tokens.Where(t => t.VerseRef != null &&
@@ -264,6 +267,8 @@ namespace ParatextNoteSuggestions
                     string reply = DecisionReply(decision);
                     if (!note.Comments.Any(c => Plain(c) == reply))
                     {
+                        if (host.UserInfo == null || String.IsNullOrWhiteSpace(decision.Reviewer) || Reviewer != decision.Reviewer)
+                            throw new InvalidOperationException("Sign in as the original reviewer (" + decision.Reviewer + ") to save this reply. The saved decision keeps its original attribution; do not repeat the Scripture edit.");
                         if (note.IsResolved) throw new InvalidOperationException("The note is already resolved without this decision reply. Inspect it in Paratext before recovery.");
                         if (!project.CanEdit(plugin, candidate.Book, candidate.Chapter) || revoked) throw new InvalidOperationException("Project-notes permission or lock is unavailable.");
                         note.AddNewComment(writeLock, reply.Split(new[] { "\r\n" }, StringSplitOptions.None).Select(line => new CommentParagraph(new[] { new FormattedString(line) })), project.Language, host.UserInfo);
@@ -355,7 +360,7 @@ namespace ParatextNoteSuggestions
                 throw new InvalidOperationException("A word may cross a formatting boundary; review this target individually.");
             string before = Passage(tokens, candidate, p.Region);
             tokens[match.TokenIndex] = new ChangedTextToken(old, ExactEditor.Replace(old.Text, match));
-            return new PassageEvidence { Before = before, After = Passage(tokens, candidate, p.Region), Scope = p.Region == ContentRegion.Introduction ? "Full book introduction (USFM)" : "Full anchored passage (USFM)" };
+            return new PassageEvidence { Before = before, After = Passage(tokens, candidate, p.Region), Scope = p.Region == ContentRegion.Introduction ? "Full book introduction (USFM)" : p.Region == ContentRegion.Heading ? "Full chapter heading/passage (USFM)" : "Full anchored passage (USFM)" };
         }
         static bool InlineAdjacent(IList<IUSFMToken> tokens, int left, int right, ContentRegion region)
         {
@@ -424,7 +429,7 @@ namespace ParatextNoteSuggestions
                 if (old == null) throw new InvalidOperationException("The selected target is not a Scripture text token.");
                 tokens[match.TokenIndex] = new ChangedTextToken(old, ExactEditor.Replace(old.Text, match));
                 string expected = project.ConvertToUSFMString(tokens);
-                if (captureEvidence != null) captureEvidence(new PassageEvidence { Before = passageBefore, After = Passage(tokens, candidate, region), Scope = region == ContentRegion.Introduction ? "Full book introduction (USFM)" : "Full anchored passage (USFM)" });
+                if (captureEvidence != null) captureEvidence(new PassageEvidence { Before = passageBefore, After = Passage(tokens, candidate, region), Scope = region == ContentRegion.Introduction ? "Full book introduction (USFM)" : region == ContentRegion.Heading ? "Full chapter heading/passage (USFM)" : "Full anchored passage (USFM)" });
                 if (revoked) throw new InvalidOperationException("The write lock was withdrawn. No edit was submitted.");
                 if (beforeSubmit != null) beforeSubmit();
                 if (revoked) throw new InvalidOperationException("The write lock was withdrawn before submission.");
@@ -470,7 +475,7 @@ namespace ParatextNoteSuggestions
                 var oldMarker = (IUSFMMarkerToken)tokens[index];
                 tokens[index] = new ChangedMarkerToken(oldMarker, b.Groups[1].Value);
                 string expected = project.ConvertToUSFMString(tokens);
-                if (captureEvidence != null) captureEvidence(new PassageEvidence { Before = passageBefore, After = Passage(tokens, candidate, ContentRegion.Heading), Scope = "Full anchored heading/passage (USFM)" });
+                if (captureEvidence != null) captureEvidence(new PassageEvidence { Before = passageBefore, After = Passage(tokens, candidate, ContentRegion.Heading), Scope = "Full chapter heading/passage (USFM)" });
                 // Reparse using the host to validate the generated USFM before writing.
                 var reparsed = project.ConvertToUSFMTokens(expected, candidate.Book, candidate.Chapter, 0).ToList();
                 if (project.ConvertToUSFMString(reparsed) != expected) throw new InvalidOperationException("Paratext's USFM round-trip changed the structural proposal; review it manually.");
@@ -545,7 +550,18 @@ namespace ParatextNoteSuggestions
                 if (token.IsFootnoteOrCrossReference && !inNote) continue;
                 if ((region == ContentRegion.Footnote || region == ContentRegion.CrossReference) && !token.IsFootnoteOrCrossReference) continue;
                 if (region == ContentRegion.Body && !token.IsScripture) continue;
-                result.Add(new TextPart { TokenIndex = i, Region = region, Chapter = token.VerseRef.ChapterNum, Verse = token.VerseRef.VerseNum, Text = text.Text });
+                var reference = token.VerseRef;
+                // Section headings precede the verse marker and can inherit the
+                // previous verse's reference in the host token stream.
+                if (region == ContentRegion.Heading) {
+                    for (int next = i + 1; next < tokens.Count; next++) {
+                        var following = tokens[next] as IUSFMMarkerToken;
+                        if (following == null) continue;
+                        if (following.Type == MarkerType.Verse) { reference = following.VerseRef ?? reference; break; }
+                        if (following.Type == MarkerType.Chapter) break;
+                    }
+                }
+                result.Add(new TextPart { TokenIndex = i, Region = region, Chapter = reference.ChapterNum, Verse = reference.VerseNum, Text = text.Text });
             }
             return result;
         }

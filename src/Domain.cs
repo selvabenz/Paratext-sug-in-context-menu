@@ -76,6 +76,11 @@ namespace ParatextNoteSuggestions
         static string Get(Dictionary<string, string> fields, string key) { string value; return fields.TryGetValue(key, out value) ? value : ""; }
         static ContentRegion TargetRegion(string topic, string reason)
         {
+            // QA locations may name the USFM marker instead of an English region.
+            topic = Regex.Replace(topic, @"\\(?:s[1-4]?|ms[1-3]?|sr|mr|r|d|sp|cl|cd|qa)\b", " heading ");
+            topic = Regex.Replace(topic, @"\\i(?:s\d*|p\w*|m\w*|q\d*|li\d*|o\w*|mt\d*|ex|e)\b", " introduction ");
+            topic = Regex.Replace(topic, @"\\(?:f|fe|ef|ft|fq|fqa|fk|fr|fl|fw|fp|fv|fdc)\b", " footnote ");
+            topic = Regex.Replace(topic, @"\\(?:x|ex|xt|xo|xk|xq|xot|xnt|xdc)\b", " cross-reference ");
             // Topic/Location are authoritative. A location at the start of Reason is
             // also used by existing QA notes (e.g. "In the footnote, ..."). Do not
             // infer a target from incidental comparisons later in the explanation.

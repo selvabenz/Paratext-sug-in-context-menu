@@ -40,7 +40,42 @@ namespace ParatextNoteSuggestions
         }
         readonly Timer indexTimer = new Timer { Interval = 30 };
         readonly Timer draftTimer = new Timer { Interval = 600 };
-        readonly Label heading = new Label(), status = new Label();
+        readonly Label passageReference = new Label(), heading = new Label(), status = new Label();
+        readonly ProgressBar activityProgress = new ProgressBar { Width = 170, Height = 18 };
+        readonly Label activityLabel = new Label { AutoSize = true, Padding = new Padding(6, 0, 0, 0) };
+        int indexingTotal;
+        Form activityWindow;
+        TextBox activityDetails;
+        void Activity(string text, int done, int total)
+        {
+            activityLabel.Text = text + (total > 0 ? " (" + done + " / " + total + ")" : "");
+            activityProgress.Style = total > 0 ? ProgressBarStyle.Continuous : ProgressBarStyle.Marquee;
+            activityProgress.Maximum = Math.Max(1, total);
+            activityProgress.Value = Math.Max(0, Math.Min(done, activityProgress.Maximum));
+            activityProgress.Visible = true;
+            activityProgress.Refresh(); activityLabel.Refresh();
+        }
+        void ActivityComplete(string summary, bool showPopup = false)
+        {
+            activityProgress.Style = ProgressBarStyle.Continuous;
+            activityProgress.Value = activityProgress.Maximum;
+            activityLabel.Text = "Activity finished";
+            activityProgress.Refresh(); activityLabel.Refresh();
+            if (!showPopup || !Visible || IsDisposed) return;
+            if (activityWindow != null && !activityWindow.IsDisposed) {
+                activityDetails.Text = summary;
+                activityWindow.Activate(); return;
+            }
+            var popup = new Form { Text = "Review queue activity", Font = Font, Size = new Size(530, 280),
+                MinimumSize = new Size(360, 220), StartPosition = FormStartPosition.CenterParent, ShowInTaskbar = false };
+            activityWindow = popup;
+            activityDetails = new TextBox { Text = summary, Multiline = true, ReadOnly = true, Dock = DockStyle.Fill,
+                ScrollBars = ScrollBars.Vertical, BackColor = Color.White };
+            popup.Controls.Add(activityDetails);
+            var close = new Button { Text = "OK", Dock = DockStyle.Bottom, Height = 36, DialogResult = DialogResult.OK };
+            close.Click += delegate { popup.Close(); }; popup.Controls.Add(close); popup.AcceptButton = close;
+            popup.Show(this);
+        }
         readonly TextBox queueLog = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill, BackColor = Color.White };
         readonly Button information = Button("ⓘ");
         readonly ToolTip informationTip = new ToolTip();
@@ -82,18 +117,20 @@ namespace ParatextNoteSuggestions
             root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            heading.Font = new Font("Segoe UI Semibold", 10); heading.ForeColor = Color.FromArgb(30, 49, 70);
+            passageReference.Font = new Font("Segoe UI Semibold", 15); passageReference.AutoSize = true;
+            passageReference.ForeColor = Color.FromArgb(30, 49, 70);
+            heading.Font = Font; heading.ForeColor = Color.FromArgb(30, 49, 70);
             heading.AutoSize = true; heading.MaximumSize = new Size(690, 0);
-            var top = new TableLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Dock = DockStyle.Top, ColumnCount = 1, RowCount = 3 };
+            var top = new TableLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Dock = DockStyle.Top, ColumnCount = 1, RowCount = 4 };
             top.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            for (int i = 0; i < 3; i++) top.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            for (int i = 0; i < 4; i++) top.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             var bookPicker = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill };
             bookPicker.Controls.Add(new Label { Text = "Review starting at", AutoSize = true, Padding = new Padding(0, 6, 0, 0) });
             bookPicker.Controls.Add(startBook); bookPicker.Controls.Add(startFromBook);
             var scopePicker = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Dock = DockStyle.Top }; scopePicker.Controls.Add(filters); scopePicker.Controls.Add(bulk); scopePicker.Controls.Add(recovery);
             syncGroup.Items.AddRange(Enum.GetValues(typeof(SyncReferenceGroup)).Cast<object>().ToArray()); syncGroup.SelectedItem = owner.NavigationGroup;
             syncGroup.SelectedIndexChanged += delegate { owner.NavigationGroup = (SyncReferenceGroup)syncGroup.SelectedItem; };
-            top.Controls.Add(heading, 0, 0); top.Controls.Add(scopeLabel, 0, 1); top.Controls.Add(scopePicker, 0, 2); root.Controls.Add(top, 0, 0);
+            top.Controls.Add(passageReference, 0, 0); top.Controls.Add(heading, 0, 1); top.Controls.Add(scopeLabel, 0, 2); top.Controls.Add(scopePicker, 0, 3); root.Controls.Add(top, 0, 0);
             firstBook = progress.StartBook();
             foreach (int number in owner.QueueBooks()) startBook.Items.Add(new BookChoice { Number = number, Code = owner.QueueBookCode(number) });
             if (startBook.Items.Count > 0) startBook.SelectedIndex = Math.Max(0, startBook.Items.Cast<BookChoice>().ToList().FindIndex(b => b.Number == firstBook));
@@ -147,13 +184,16 @@ namespace ParatextNoteSuggestions
                 if (informationText != null && !informationText.IsDisposed) informationText.Text = status.Text;
                 RefreshQueueLog();
             };
-            root.Controls.Add(information); Controls.Add(root);
+            var activity = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill };
+            activity.Controls.Add(activityProgress); activity.Controls.Add(activityLabel); activity.Controls.Add(information);
+            root.Controls.Add(activity); Controls.Add(root);
+            indexingTotal = books.Count; Activity("Loading review notes", 0, indexingTotal);
             apply.BackColor = Color.FromArgb(27, 97, 150); apply.ForeColor = Color.White; apply.FlatAppearance.BorderSize = 0;
             Action reflow = delegate {
                 if (WindowState == FormWindowState.Minimized || root.ClientSize.Width < 300) return;
                 int width = root.ClientSize.Width - root.Padding.Horizontal - 6;
                 bookPicker.MaximumSize = scopePicker.MaximumSize = new Size(width, 0);
-                heading.MaximumSize = scopeLabel.MaximumSize = navigationLabel.MaximumSize = new Size(width, 0);
+                passageReference.MaximumSize = heading.MaximumSize = scopeLabel.MaximumSize = navigationLabel.MaximumSize = new Size(width, 0);
                 foreach (Control control in fields.Controls) {
                     control.Margin = new Padding(2);
                     if (control is CheckBox || control is Button) control.MaximumSize = new Size(Math.Max(180, fields.ClientSize.Width - 10), 0);
@@ -168,7 +208,9 @@ namespace ParatextNoteSuggestions
             retry.Click += delegate { Retry(); };
             resolve.Click += delegate {
                 if (!resolve.Enabled) return;
-                Guard(delegate { busy = true; EnableActions(); try { FinishResolution(); } finally { busy = false; EnableActions(); } });
+                Guard(delegate { busy = true; EnableActions(); Activity("Retrying note reply and resolution", 0, 0);
+                    try { string reference = current.DisplayReference, id = current.StableId; FinishResolution(); ActivityComplete("Note reply saved for " + reference + ". Note status: " + progress.Get(id).Resolution + ". No Scripture edit repeated."); }
+                    finally { busy = false; EnableActions(); } });
             };
             pause.Click += delegate {
                 Guard(delegate {
@@ -355,7 +397,8 @@ namespace ParatextNoteSuggestions
             items.Clear(); duplicateIds.Clear(); seen.Clear(); books.Clear(); current = null; position = -1; completed = 0;
             owner.HighlightTarget(null);
             foreach (int number in owner.QueueBooks().Where(scope.IncludesBook)) books.Enqueue(number);
-            paused = false; pause.Text = "Pause"; indexing = true; UpdateScopeLabel();
+            paused = false; pause.Text = "Pause"; indexing = true; indexingTotal = books.Count; Activity("Loading review notes", 0, indexingTotal); UpdateScopeLabel();
+            passageReference.Text = "";
             heading.Text = "Indexing selected scope, one book at a time...";
             source.Clear(); original.Clear(); replacement.Clear(); comment.Clear(); navigationLabel.Text = "";
             EnableActions(); indexTimer.Start();
@@ -395,7 +438,7 @@ namespace ParatextNoteSuggestions
                 return;
             }
             // Re-send the scroll request after asynchronous project-window activation.
-            if (navigationChecks == 0) owner.ScrollProjectTo(current);
+            if (navigationChecks % 3 == 0) owner.ScrollProjectTo(current);
             bool visible = owner.NavigationVisible(current);
             if (visible || ++navigationChecks >= 12)
             {
@@ -405,7 +448,7 @@ namespace ParatextNoteSuggestions
         }
         void Fail(Exception ex)
         {
-            indexTimer.Stop(); draftTimer.Stop(); paused = true; pause.Text = "Resume"; owner.ReportFailure(ex);
+            indexTimer.Stop(); draftTimer.Stop(); navigationTimer.Stop(); returnNavigationPending = false; ActivityComplete("Activity stopped: " + ex.Message + " Review paused. Check Recovery before retrying an interrupted write."); paused = true; pause.Text = "Resume"; owner.ReportFailure(ex);
             status.Text = ex.Message + " Review paused.";
             try { GenerateReports("Stopped after error", false); } catch (Exception reportError) { owner.ReportFailure(reportError); status.Text += " Report pending; local audit is saved. Use Report folder / View latest report to retry."; }
             EnableActions();
@@ -449,12 +492,13 @@ namespace ParatextNoteSuggestions
                     if (!seen.Add(c.StableId)) duplicateIds.Add(c.StableId);
                     items.Add(c);
                 }
-                books.Dequeue();
+                books.Dequeue(); Activity("Loading review notes", indexingTotal - books.Count, indexingTotal);
                 heading.Text = owner.ProjectName + " - indexed " + items.Count + " proposals; " + books.Count + " books remaining";
                 RefreshQueueLog();
                 return;
             }
             indexTimer.Stop(); indexing = false;
+            ActivityComplete("Loading complete: " + items.Count + " proposals in the selected scope. " + unreadableSources.Count + " unreadable sources; inspect the Log tab for details.");
             recovery.Text = "Recovery (" + progress.Outstanding().Count() + ")";
             SortItems();
             completed = items.Count(c => { var r = progress.Get(c.StableId); return r != null && r.Completed; });
@@ -505,6 +549,7 @@ namespace ParatextNoteSuggestions
             if (current == null)
             {
                 owner.HighlightTarget(null);
+                passageReference.Text = "";
                 heading.Text = owner.ProjectName + " - " + completed + " / " + items.Count + " reviewed";
                 source.Text = "End of this pass. Resume to revisit items left for later, or close and reopen to scan for new notes.";
                 original.Clear(); replacement.Clear(); comment.Clear();
@@ -544,7 +589,8 @@ namespace ParatextNoteSuggestions
             populating = false;
             try { loadedContext = owner.CapturePassage(current, (ContentRegion)region.SelectedItem); } catch { loadedContext = ""; }
             if (restore != null && restore.BeforeContext.Length > 0) loadedContext = restore.BeforeContext;
-            heading.Text = current.DisplayReference + " | " + current.Proposal.Pass + " | " + current.Proposal.Category + "\r\n" + (position + 1) + " / " + items.Count + " | " + completed + " reviewed | " + (current.IsResolved ? "Resolved" : "Unresolved") + (previous == null ? "" : " | " + previous.Outcome);
+            passageReference.Text = current.DisplayReference;
+            heading.Text = current.Proposal.Pass + " | " + current.Proposal.Category + "\r\n" + (position + 1) + " / " + items.Count + " | " + completed + " reviewed | " + (current.IsResolved ? "Resolved" : "Unresolved") + (previous == null ? "" : " | " + previous.Outcome);
             if (!blocked) status.Text = ResolutionPending() ? "Decision saved locally. Retry note resolution to finish; the Scripture correction will not be repeated." : Pending() ? "An earlier apply did not finish recording. Inspect Paratext history and the passage, then confirm completed manually or confirm no edit before retrying." : "Review the correction, then apply or reject.";
             else status.Text = "Source changed, unavailable, or duplicate identity. Automatic Apply is blocked. Inspect in Paratext; leave for later or record a commented manual decision.";
             if (current.Unreadable) status.Text = "Paratext cannot read this discussion. Decisions are blocked for this note; inspect/fix it in Paratext or Leave for later. Other notes can continue.";
@@ -607,7 +653,7 @@ namespace ParatextNoteSuggestions
                 if (outcome == "Applied" && (!apply.Enabled || region.SelectedItem == null)) return;
                 if (outcome == "Rejected" && !reject.Enabled) return;
                 if (outcome == "Completed manually" && !manual.Enabled) return;
-                busy = true; EnableActions();
+                busy = true; EnableActions(); Activity("Saving review decision", 0, 0);
                 try
                 {
                     var record = Record(outcome);
@@ -651,6 +697,7 @@ namespace ParatextNoteSuggestions
                         ReviewSession.WriteEntry(progress.DirectoryPath, reconciled.SessionId, reconciled);
                     }
                     completed++; FinishResolution();
+                    ActivityComplete(outcome + " decision saved for " + record.Reference + ". Reviewer: " + record.Reviewer + ". Note status: " + progress.Get(record.Id).Resolution + ".");
                 }
                 finally { busy = false; EnableActions(); }
             });
@@ -717,7 +764,9 @@ namespace ParatextNoteSuggestions
         {
             if (busy || paused || indexing || scope.RecoveryOnly || String.IsNullOrWhiteSpace(decisionComment)) return;
             var eligible = new List<NoteCandidate>(); var previews = new Dictionary<string, PassageEvidence>(); int skipped = 0;
+            int previewCount = 0;
             foreach (var item in selected) {
+                Activity("Checking selected corrections", ++previewCount, selected.Count);
                 try {
                     var prior = progress.Get(item.StableId);
                     if (!items.Contains(item) || duplicateIds.Contains(item.StableId) || (prior != null && (prior.Completed || prior.Outcome == "Pending apply")))
@@ -731,9 +780,10 @@ namespace ParatextNoteSuggestions
                 }
             }
             if (eligible.Count == 0) {
-                status.Text = "No selected corrections can be safely previewed. " + skipped + " skipped and left unresolved. Use Manual review for saved proposals and reasons.";
+                status.Text = "No selected corrections can be safely previewed. " + skipped + " skipped and left unresolved. Use Manual review for saved proposals and reasons."; ActivityComplete(status.Text, true);
                 return;
             }
+            ActivityComplete("Preview ready: " + eligible.Count + " eligible; " + skipped + " skipped. No Scripture edits yet.", true);
             ShowCorrectionPreview(eligible, previews, skipped, null, "selected corrections", decisionComment);
         }
         void BulkSandhi()
@@ -746,8 +796,10 @@ namespace ParatextNoteSuggestions
             SaveDraft();
             var previews = new Dictionary<string, PassageEvidence>();
             var eligible = new List<NoteCandidate>(); var skipped = new List<string>();
-            foreach (var item in items.Where(c => c.Proposal.Category == category && !c.IsResolved))
+            var candidates = items.Where(c => c.Proposal.Category == category && !c.IsResolved).ToList(); int checkedCount = 0;
+            foreach (var item in candidates)
             {
+                Activity("Checking " + label, ++checkedCount, candidates.Count);
                 var prior = progress.Get(item.StableId);
                 if (prior != null && prior.Completed) continue;
                 status.Text = "Checking " + label + " - " + item.DisplayReference + "; " + eligible.Count + " eligible, " + skipped.Count + " skipped."; status.Refresh();
@@ -765,8 +817,9 @@ namespace ParatextNoteSuggestions
             }
             if (eligible.Count == 0) {
                 string summary = "Bulk " + label + " complete: 0 resolved; " + skipped.Count + " not resolved (skipped). No Scripture edits.";
-                session.AddWarning(summary); status.Text = summary + " Use Manual review for saved proposals and reasons."; return;
+                session.AddWarning(summary); status.Text = summary + " Use Manual review for saved proposals and reasons."; ActivityComplete(status.Text, true); return;
             }
+            ActivityComplete("Preview ready: " + eligible.Count + " eligible; " + skipped.Count + " skipped. No Scripture edits yet.", true);
             ShowCorrectionPreview(eligible, previews, skipped.Count, category, label);
         }
         void ShowCorrectionPreview(List<NoteCandidate> eligible, Dictionary<string, PassageEvidence> previews, int skipped, string category, string label, string decisionComment = null)
@@ -804,7 +857,7 @@ namespace ParatextNoteSuggestions
                     bool submitted = false, decisionDurable = false;
                     try
                     {
-                        status.Text = "Applying " + label + " " + (++processed) + " / " + selectedItems.Count + " - " + item.DisplayReference; status.Refresh();
+                        status.Text = "Applying " + label + " " + (++processed) + " / " + selectedItems.Count + " - " + item.DisplayReference; status.Refresh(); Activity("Applying " + label, processed, selectedItems.Count);
                         var prior = progress.Get(item.StableId);
                         if (!items.Contains(item) || duplicateIds.Contains(item.StableId) || (prior != null && (prior.Completed || prior.Outcome == "Pending apply")))
                             throw new InvalidOperationException("Target is unavailable, ambiguous, or already decided; use Recovery if needed.");
@@ -856,6 +909,7 @@ namespace ParatextNoteSuggestions
                 recovery.Text = "Recovery (" + progress.Outstanding().Count() + ")";
                 UpdateScopeLabel(); position = -1; Next();
                 status.Text = summary + " " + progress.Outstanding().Count() + " pending recovery. Use Manual review for skipped/unattempted proposals and reasons. Unselected eligible proposals are outside these totals.";
+                ActivityComplete(status.Text, true);
             }
             finally { busy = false; EnableActions(); }
         }
@@ -868,7 +922,7 @@ namespace ParatextNoteSuggestions
                 int processed = 0;
                 foreach (var item in selectedItems)
                 {
-                    status.Text = "Saving bulk decision " + (++processed) + " / " + selectedItems.Count + " - " + item.DisplayReference; status.Refresh();
+                    status.Text = "Saving bulk decision " + (++processed) + " / " + selectedItems.Count + " - " + item.DisplayReference; status.Refresh(); Activity("Saving bulk decisions", processed, selectedItems.Count);
                     try
                     {
                         if (!items.Contains(item) || duplicateIds.Contains(item.StableId)) throw new InvalidOperationException("Target is outside the queue or ambiguous.");
@@ -894,6 +948,7 @@ namespace ParatextNoteSuggestions
                 UpdateScopeLabel(); position = -1; Next();
                 status.Text = success + " decisions saved in Paratext notes. " + failures.Count + " failed; " + progress.Outstanding().Count() + " pending recovery. No Scripture edits.";
                 if (failures.Count > 0) { session.AddWarning(String.Join("\r\n", failures)); status.Text += " Failure details are in the session report."; }
+                ActivityComplete(status.Text, true);
             }
             finally { busy = false; EnableActions(); }
         }

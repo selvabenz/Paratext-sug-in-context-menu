@@ -43,6 +43,46 @@ namespace NoteSuggestionsTests
         { return items.ToDictionary(c => c.StableId, c => f.Service().ForQueueItem(c).PreviewBulkSandhi(c)); }
         public static void Run(Action<string, Action> test)
         {
+            test("queue activity shows determinate progress and one reusable completion popup", delegate {
+                var f = new Fixture(); using (var q = Queue(f, Root())) {
+                    q.Show(); Application.DoEvents();
+                    Call(q, "Activity", "Checking proposals", 2, 5);
+                    var bar = Field<ProgressBar>(q, "activityProgress");
+                    Check(bar.Visible && bar.Maximum == 5 && bar.Value == 2 && bar.Style == ProgressBarStyle.Continuous);
+                    Check(Field<Label>(q, "passageReference").Font.Size >= 15 && Field<Label>(q, "heading").Font.Size == q.Font.Size);
+                    Call(q, "ActivityComplete", "2 verified; 1 skipped; 1 pending recovery", true);
+                    Call(q, "ActivityComplete", "Loading complete: 5 proposals", true);
+                    Check(bar.Value == bar.Maximum && q.OwnedForms.Count(d => d.Text == "Review queue activity") == 1);
+                    Check(Field<TextBox>(q, "activityDetails").Text == "Loading complete: 5 proposals");
+                    Check(f.Writes == 0 && f.Replies.Count == 0); q.Close();
+                }
+            });
+            test("single decisions advance the pinned passage without completion popups", delegate {
+                foreach (string outcome in new[] { "Applied", "Rejected", "Completed manually" }) {
+                    var f = MultiBook(); using (var q = Queue(f, Root())) {
+                        q.Show(); Application.DoEvents(); Call(q, "CheckNavigation");
+                        Field<TextBox>(q, "comment").Text = "Checked navigation";
+                        Field<CheckBox>(q, "reviewed").Checked = true;
+                        f.ActiveVerse = 20;
+                        Field<Button>(q, outcome == "Applied" ? "apply" : outcome == "Rejected" ? "reject" : "manual").PerformClick();
+                        var target = Field<NoteCandidate>(q, "current");
+                        Check(target != null && target.Book == 40);
+                        Call(q, "CheckNavigation");
+                        Check(f.LastNavigationReference == target.TargetReference && f.LastNavigationProject.ID == f.ProjectId);
+                        Check(f.Plugin.HighlightFor(f.Project).GetAnnotations(target.TargetReference, target.Proposal.Original).Count == 1);
+                        Check(q.OwnedForms.All(d => d.Text != "Review queue activity"));
+                        Check(f.Writes == (outcome == "Applied" ? 1 : 0)); q.Close();
+                    }
+                }
+            });
+            test("same-verse reveal changes the selected sync group before restoring its pinned target", delegate {
+                var f = new Fixture(); f.EditorSyncGroup = Paratext.PluginInterfaces.SyncReferenceGroup.B;
+                var service = f.Service(); var item = service.ReadQueueBook(1).Single();
+                service.BeginReturnToPassage(item);
+                Check(f.SyncCalls == 1 && f.LastSyncGroup == service.NavigationGroup && f.LastSyncReference.VerseNum != item.FirstVerse);
+                service.Navigate(item);
+                Check(f.SyncCalls == 2 && f.LastSyncReference == item.TargetReference && f.Writes == 0);
+            });
             test("Scripture annotation highlights a unique literal Original only in the pinned verse", delegate {
                 var f = new Fixture(); var service = f.Service(); var item = service.ReadQueueBook(1).Single();
                 var source = f.Plugin.HighlightFor(f.Project); int changes = 0; source.AnnotationsChanged += delegate { changes++; };
@@ -278,7 +318,7 @@ namespace NoteSuggestionsTests
                     q.Show(); Application.DoEvents();
                     var selected = Field<System.Collections.Generic.List<NoteCandidate>>(q, "items").Where(c => c.Proposal.Category == "Sandhi / word-joining").ToList();
                     Call(q, "PreviewSelectedCorrections", selected, "Carried comment"); Application.DoEvents();
-                    var dialog = q.OwnedForms.Single();
+                    var dialog = q.OwnedForms.Single(d => d.GetType().Name == "BulkResolveDialog");
                     Check(Field<CheckedListBox>(dialog, "list").Items.Count == 1 && Field<CheckedListBox>(dialog, "list").CheckedItems.Count == 0 && Field<TextBox>(dialog, "comment").Text == "Carried comment");
                     Descendants(dialog).OfType<Button>().Single(b => b.Text == "Cancel").PerformClick(); Application.DoEvents();
                     Check(f.Writes == 0 && f.Replies.Count == 0 && !f.Resolved && !second.Resolved && !Field<bool>(q, "busy")); q.Close();
@@ -605,7 +645,7 @@ namespace NoteSuggestionsTests
                     {
                         q.Size = size; Application.DoEvents();
                         q.WindowState = FormWindowState.Minimized; Application.DoEvents(); q.WindowState = FormWindowState.Normal; Application.DoEvents();
-                        foreach (string name in new[] { "heading", "scopeLabel", "region", "original", "replacement", "commentPreset", "comment", "deletion", "reviewed", "manual", "previous", "next", "back", "apply", "reject", "pause", "information" })
+                        foreach (string name in new[] { "passageReference", "heading", "scopeLabel", "region", "original", "replacement", "commentPreset", "comment", "deletion", "reviewed", "manual", "previous", "next", "back", "apply", "reject", "pause", "information" })
                         {
                             Control control = Field<Control>(q, name);
                             var bounds = q.RectangleToClient(control.RectangleToScreen(control.ClientRectangle));
@@ -732,15 +772,15 @@ namespace NoteSuggestionsTests
                 service.NavigationGroup = Paratext.PluginInterfaces.SyncReferenceGroup.None; service.Navigate(item);
                 Check(f.SyncCalls == 1 && f.Writes == 0 && f.Resolves == 0 && !service.NavigationVisible(item));
             });
-            test("navigation scrolls the actual project group even when the saved group is None or stale", delegate {
+            test("navigation respects None and never broadcasts to a second project group", delegate {
                 var f = MultiBook(); var service = f.Service(); var item = service.ReadQueueBook(40).Single();
                 f.EditorSyncGroup = Paratext.PluginInterfaces.SyncReferenceGroup.C;
                 service.NavigationGroup = Paratext.PluginInterfaces.SyncReferenceGroup.None;
                 service.Navigate(item);
-                Check(f.SyncCalls == 1 && f.LastSyncGroup == f.EditorSyncGroup && f.LastSyncReference == item.TargetReference);
+                Check(f.SyncCalls == 0 && f.LastNavigationReference == item.TargetReference);
                 service.NavigationGroup = Paratext.PluginInterfaces.SyncReferenceGroup.B;
                 service.Navigate(item);
-                Check(f.SyncCalls == 3 && f.LastSyncGroup == service.NavigationGroup && f.Writes == 0 && f.Resolves == 0);
+                Check(f.SyncCalls == 1 && f.LastSyncGroup == service.NavigationGroup && f.Writes == 0 && f.Resolves == 0);
             });
             test("Return forces a verse change and returns to the exact pinned verse on the next UI tick", delegate {
                 var f = new Fixture(); using (var q = Queue(f, Root())) {

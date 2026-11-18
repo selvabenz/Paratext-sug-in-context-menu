@@ -39,6 +39,46 @@ namespace NoteSuggestionsTests
         }
         public static void Run(Action<string, Action> test)
         {
+            test("USFM marker locations route literal text to the requested region", delegate {
+                string text = Fixture.Qa("Possible typo", "பழைய", "புதிய", "Yes");
+                foreach (string marker in new[] { "s", "s1", "ft", "xt", "ip", "imt1" }) {
+                    var parsed = NoteParser.Parse(text.Replace("Original:", "Location: \\" + marker + "\r\nOriginal:"));
+                    ContentRegion expected = marker.StartsWith("s") ? ContentRegion.Heading : marker == "ft" ? ContentRegion.Footnote : marker == "xt" ? ContentRegion.CrossReference : ContentRegion.Introduction;
+                    Check(parsed.Region == expected && parsed.Route == ProposalRoute.Review);
+                }
+            });
+            test("heading before verse matches following verse and appears in saved evidence", delegate {
+                var f = Target(ContentRegion.Heading);
+                f.Tokens.Clear();
+                f.Tokens.Add(Fixture.Marker("s", "", 1, 2, MarkerType.Paragraph));
+                f.Tokens.Add(Fixture.Text("பழைய", 1, 2, false, false));
+                f.Tokens.Add(Fixture.Marker("v", "3", 1, 3, MarkerType.Verse));
+                f.Tokens.Add(Fixture.Text("பழைய", 1, 3, true, false));
+                var s = f.Service(); var c = s.ReadQueueBook(1).Single();
+                var preview = s.ForQueueItem(c).PreviewBulkCorrection(c, "Possible typo", true);
+                Check(preview.Before != preview.After && preview.After.Contains("புதிய"));
+                s.ForQueueItem(c).Apply(c, "பழைய", "புதிய", ContentRegion.Heading, true, false, null,
+                    evidence => Check(evidence.Before == preview.Before && evidence.After == preview.After), true);
+                Check(((IUSFMTextToken)f.Tokens[1]).Text == "புதிய" && ((IUSFMTextToken)f.Tokens[3]).Text == "பழைய");
+            });
+            test("reply retry cannot post the original reviewer decision under another account", delegate {
+                var f = Target(ContentRegion.Footnote); f.ThrowComment = true;
+                string root = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "qt", Guid.NewGuid().ToString("N"));
+                using (var q = QueueTests.Queue(f, root)) {
+                    var flags = BindingFlags.Instance | BindingFlags.NonPublic;
+                    var items = (System.Collections.Generic.List<NoteCandidate>)typeof(QueueForm).GetField("items", flags).GetValue(q);
+                    var previews = items.ToDictionary(c => c.StableId, c => f.Service().ForQueueItem(c).PreviewBulkCorrection(c, c.Proposal.Category, true));
+                    typeof(QueueForm).GetMethod("RunCorrectionBatch", flags).Invoke(q, new object[] { items, "Reviewed footnote", previews, 0, null, "selected corrections" });
+                    var progress = (ReviewProgress)typeof(QueueForm).GetField("progress", flags).GetValue(q);
+                    var record = progress.Get(items[0].StableId);
+                    Check(record.ResolutionPending && f.Writes == 1);
+                    f.ThrowComment = false; f.UserName = "Another reviewer";
+                    Refuse(delegate { System.Collections.Generic.List<string> ids;
+                        f.Service().ResolveReviewedThread(items[0], record.Discussion, id => true, out ids, record, progress.Get); });
+                    Check(f.Replies.Count == 0 && !f.Resolved && f.Writes == 1);
+                    q.Close();
+                }
+            });
             foreach (ContentRegion region in new[] { ContentRegion.Introduction, ContentRegion.Heading, ContentRegion.Footnote, ContentRegion.CrossReference }) {
                 ContentRegion captured = region;
                 test("reviewed regional bulk preserves identical body text: " + region, delegate {

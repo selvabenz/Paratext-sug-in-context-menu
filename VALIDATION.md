@@ -100,3 +100,12 @@ Installed with Paratext closed using the checksum-verifying installer and offici
 The final installed build passed **215 synthetic checks, zero failed**, plus real Paratext 9.5.110.1 NSTest acceptance for Tamil inline labels, tooltips, right-click menus, required comment/review gating, Apply, Reject, Ignore, advancement, annotation cleanup and restart persistence. All **763 protected Scripture/note files outside NSTest remain byte-for-byte unchanged**. Installed/build SHA-256: `1ACC17E0E01CECC570046D23915A52B05F9F02D978F49BD82126409D7E91FEF2`.
 
 See [the detailed host record](TARGET_HIGHLIGHT_PLAN.md) and [issue #6](https://github.com/selvabenz/Paratext-sug-in-context-menu/issues/6). Local fixture backups, checksums, final build log and result data are under ignored `artifacts/inline-host/`. This acceptance covers inline queue actions; the regional bulk, export, synchronization and full DPI/monitor acceptance limits above remain in effect.
+
+
+## Review queue feedback and synchronized reveal ? 18 November 2026
+
+The installed working-tree build passed **221 synthetic checks, zero failed**, with warnings-as-errors compilation against the installed Paratext 9.5.110.1 interfaces. Build and installed SHA-256 match: `E133D3E2DEF67925636590D5BBF695A11AB16EFF03FFA90A2FE7933AECE52CD5`.
+
+In disposable NSTest, Next/Previous returned between GEN 2:2 and 2:12. Manual/no-change, Apply + next and Reject + next saved the expected replies and advanced without completion popups. Apply made one verified verse-12 correction; the full saved file matched the expected change after accounting for host line-end whitespace normalization. The three completed threads each contain one decision reply and a native terminal status record. A malformed out-of-range final fixture was corrected; reopening and Return retained valid GEN 2:24 in the project window and toolbar. All 772 protected Scripture/note files outside NSTest remained byte-for-byte unchanged. No production decisions or Send/Receive were performed.
+
+The queue now enlarges only the passage reference. Bulk previews/execution retain modeless result popups; indexing, single decisions and resolution retries update the footer without one. The same-verse reveal broadcasts both the temporary neighbour and final pinned target to the selected group; this addresses an unchanged group reference defeating the reveal. Group B received host coverage; all groups and exact viewport/caret alignment remain outside this host acceptance. See [the detailed report](REVIEW_QUEUE_FIX_REPORT.md).
