@@ -12,7 +12,7 @@ namespace NoteSuggestionsTests
     public static class InlineSuggestionTests
     {
         static void Check(bool value) { if (!value) throw new Exception("Inline suggestion assertion failed"); }
-        static string Root() { return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "inline-tests", Guid.NewGuid().ToString("N")); }
+        static string Root() { return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "it", Guid.NewGuid().ToString("N").Substring(0, 8)); }
         static T Field<T>(object o, string name) { return (T)o.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic).GetValue(o); }
         static object Call(object o, string name, params object[] args)
         {

@@ -1,4 +1,6 @@
-﻿# 0.4.0-preview - 19 November 2026
+﻿# 0.4.1-preview - 19 November 2026
+
+First published 0.4 release (0.4.0-preview was not published: the release build's tests exceeded the Windows path limit on GitHub's runner).
 
 - **Windows installer and automatic releases.** Each release now includes `ParatextNoteSuggestions-<version>-Setup.exe`, which finds Paratext, waits for it to close, installs the plugin, refreshes the plugin list and adds an entry to Windows' installed apps. Every push to `main` that changes the plugin builds, tests and publishes a release on GitHub. Versions come from `VERSION` plus the commit count; the plugin reports the same version to Paratext.
 - **Review queue navigation fix.** Previous, Next, Return to passage, Apply + next, Reject + next and Completed manually again bring the editor to the queued verse and its highlighted target. The queue no longer trusts a single navigation request: it keeps checking the project editor and sends the reference again if Paratext moves it. See [the navigation fix report](NAVIGATION_FIX_REPORT.md).

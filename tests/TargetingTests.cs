@@ -63,7 +63,7 @@ namespace NoteSuggestionsTests
             });
             test("reply retry cannot post the original reviewer decision under another account", delegate {
                 var f = Target(ContentRegion.Footnote); f.ThrowComment = true;
-                string root = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "qt", Guid.NewGuid().ToString("N"));
+                string root = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "qt", Guid.NewGuid().ToString("N").Substring(0, 8));
                 using (var q = QueueTests.Queue(f, root)) {
                     var flags = BindingFlags.Instance | BindingFlags.NonPublic;
                     var items = (System.Collections.Generic.List<NoteCandidate>)typeof(QueueForm).GetField("items", flags).GetValue(q);
@@ -107,7 +107,7 @@ namespace NoteSuggestionsTests
             }
             test("queue records actual non-body region and resolves after verified edit", delegate {
                 var f = Target(ContentRegion.Footnote);
-                string root = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "qt", Guid.NewGuid().ToString("N"));
+                string root = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "qt", Guid.NewGuid().ToString("N").Substring(0, 8));
                 using (var q = QueueTests.Queue(f, root)) {
                     var flags = BindingFlags.Instance | BindingFlags.NonPublic;
                     var items = (System.Collections.Generic.List<NoteCandidate>)typeof(QueueForm).GetField("items", flags).GetValue(q);

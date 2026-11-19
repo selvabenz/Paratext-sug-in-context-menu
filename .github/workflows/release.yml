@@ -37,7 +37,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0 # the patch number counts commits
 
@@ -50,9 +50,17 @@ jobs:
         run: |
           if (!(Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup --no-progress -y; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } }
 
+      # The tests create deep review-progress folders; a short drive keeps them inside Windows'
+      # 260-character path limit whatever the runner's workspace path is. Git must accept the
+      # mapped path, or version.ps1 would fall back to patch 0.
       - name: Build, test and package
         shell: powershell
-        run: ./scripts/package.ps1 -ParatextDir artifacts/paratext-interfaces -RequireInstaller
+        run: |
+          subst P: "$env:GITHUB_WORKSPACE"
+          git config --global --add safe.directory P:/
+          Set-Location P:\
+          ./scripts/package.ps1 -ParatextDir P:\artifacts\paratext-interfaces -RequireInstaller
+          if ((./scripts/version.ps1).Version -ne (& "$env:GITHUB_WORKSPACE/scripts/version.ps1").Version) { throw 'Version differs between the mapped drive and the workspace.' }
 
       - name: Read version
         id: version
@@ -63,7 +71,7 @@ jobs:
           "tag=$($v.Tag)" >> $env:GITHUB_OUTPUT
           "prerelease=$($v.Prerelease.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: ParatextNoteSuggestions-${{ steps.version.outputs.version }}
           path: artifacts/release/${{ steps.version.outputs.version }}/*

@@ -13,7 +13,7 @@ namespace NoteSuggestionsTests
         static T Field<T>(object o, string name) { return (T)o.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic).GetValue(o); }
         static void Call(object o, string name) { o.GetType().GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic).Invoke(o, null); }
         static void Check(bool value) { if (!value) throw new Exception("Queue information assertion failed"); }
-        static string Root() { return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "qt", Guid.NewGuid().ToString("N")); }
+        static string Root() { return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "qi", Guid.NewGuid().ToString("N").Substring(0, 8)); }
         static void Capture(Form form, string name)
         {
             using (var bitmap = new Bitmap(form.Width, form.Height)) {

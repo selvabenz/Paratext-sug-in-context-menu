@@ -6,7 +6,7 @@ Target: **Paratext 9.5.110.1 on Windows**.
 
 ## Status
 
-**0.4.0-preview** is a compiled Windows plugin built against the Paratext 9.5 plugin interfaces (2.0.100.0), targeting .NET Framework 4.8 and tested with Paratext 9.5.110.1. 228 synthetic checks pass, with real-host tests for loading, exact Scripture/footnote writes, ambiguity refusal, and revert in a disposable project. Export/Send-Receive acceptance remains pending; releases are marked as previews.
+**0.4.1-preview** is a compiled Windows plugin built against the Paratext 9.5 plugin interfaces (2.0.100.0), targeting .NET Framework 4.8 and tested with Paratext 9.5.110.1. 228 synthetic checks pass, with real-host tests for loading, exact Scripture/footnote writes, ambiguity refusal, and revert in a disposable project. Export/Send-Receive acceptance remains pending; releases are marked as previews.
 
 Get **ParatextNoteSuggestions-&lt;version&gt;-Setup.exe** from [GitHub Releases](https://github.com/selvabenz/Paratext-sug-in-context-menu/releases), close Paratext and run it. Read [INSTALL.md](INSTALL.md), [VALIDATION.md](VALIDATION.md), and the [developer handoff](DEVELOPER_HANDOFF.md) before using it.
 
