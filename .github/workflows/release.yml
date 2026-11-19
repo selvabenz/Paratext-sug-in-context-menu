@@ -90,7 +90,7 @@ jobs:
           if ($LASTEXITCODE -eq 0) { Write-Output "Release $env:TAG already exists; nothing to publish."; exit 0 }
           $previous = git describe --tags --abbrev=0 HEAD 2>$null
           $range = if ($previous) { "$previous..HEAD" } else { 'HEAD' }
-          $changes = git log --no-merges --format='- %s (%h)' $range
+          $changes = @(git log --no-merges --format='- %s (%h)' $range)
           $dist = "artifacts/release/$env:VERSION"
           $setup = "ParatextNoteSuggestions-$env:VERSION-Setup.exe"
           $notes = @(
@@ -103,9 +103,8 @@ jobs:
             "",
             "To remove it, use **Settings > Apps > Installed apps > Note Suggestions for Paratext**. The ZIP contains the same plugin with ``install.ps1``/``uninstall.ps1`` for scripted installs; see INSTALL.md. Each file has a ``.sha256`` checksum. The installer is not code-signed, so Windows SmartScreen may ask for confirmation.",
             "",
-            "## Changes since $(if ($previous) { $previous } else { 'the first commit' })",
-            $changes
-          )
+            "## Changes since $(if ($previous) { $previous } else { 'the first commit' })"
+          ) + $changes
           $notes -join "`n" | Set-Content -Path release-notes.md -Encoding utf8
           $arguments = @('release', 'create', $env:TAG, '--title', "Note Suggestions $env:VERSION", '--notes-file', 'release-notes.md', '--target', $env:GITHUB_SHA)
           if ($env:PRERELEASE -eq 'true') { $arguments += '--prerelease' } else { $arguments += '--latest' }

@@ -27,6 +27,7 @@ elseif ($RequireInstaller) { throw 'Inno Setup 6 (ISCC.exe) is required to build
 else { Write-Warning 'Inno Setup 6 was not found; only the ZIP package was built.' }
 foreach ($file in Get-ChildItem -LiteralPath $distDir -File | Where-Object { $_.Extension -in '.zip', '.exe' }) {
     $line = "{0}  {1}" -f (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant(), $file.Name
-    [IO.File]::WriteAllText(($file.FullName + '.sha256'), $line + [Environment]::NewLine, [Text.Encoding]::ASCII)
+    # LF line ending, so both Get-FileHash comparisons and `sha256sum -c` accept the file.
+    [IO.File]::WriteAllText(($file.FullName + '.sha256'), $line + "`n", [Text.Encoding]::ASCII)
     Write-Output "Release file: $($file.FullName)"
 }
