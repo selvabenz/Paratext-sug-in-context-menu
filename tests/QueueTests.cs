@@ -50,9 +50,11 @@ namespace NoteSuggestionsTests
                 var f = new Fixture(); using (var q = Queue(f, Root())) {
                     q.Show(); Application.DoEvents();
                     Call(q, "Activity", "Checking proposals", 2, 5);
-                    var bar = Field<ProgressBar>(q, "activityProgress");
-                    Check(bar.Visible && bar.Maximum == 5 && bar.Value == 2 && bar.Style == ProgressBarStyle.Continuous);
-                    Check(Field<Label>(q, "passageReference").Font.Size >= 15 && Field<Label>(q, "heading").Font.Size == q.Font.Size);
+                    var bar = Field<ToolStripProgressBar>(q, "activityProgress");
+                    Check(bar.Visible && bar.Maximum == 5 && bar.Value == 2 && bar.Style == ProgressBarStyle.Continuous && bar.Owner is StatusStrip);
+                    // Only the reference is enlarged; the rest of the header keeps the Paratext window font.
+                    Check(Field<Label>(q, "passageReference").Font.SizeInPoints > q.Font.SizeInPoints * 1.4f && Field<Label>(q, "heading").Font.Size == q.Font.Size);
+                    Check(q.Font.Name == ParatextTheme.Font.Name && q.BackColor == ParatextTheme.ColorOf("background_control"));
                     Call(q, "ActivityComplete", "2 verified; 1 skipped; 1 pending recovery", true);
                     Call(q, "ActivityComplete", "Loading complete: 5 proposals", true);
                     Check(bar.Value == bar.Maximum && q.OwnedForms.Count(d => d.Text == "Review queue activity") == 1);
@@ -120,6 +122,47 @@ namespace NoteSuggestionsTests
                     Call(restored, "Start"); Check(restored.Queue != null);
                     while (Field<bool>(restored.Queue, "indexing")) Call(restored.Queue, "IndexBook");
                     Check(Field<TextBox>(restored.Queue, "comment").Text == "Docked draft");
+                }
+            });
+            test("every plugin window uses the Paratext theme, font, icon and standard command buttons", delegate {
+                var f = MultiBook(); using (var q = Queue(f, Root())) {
+                    q.Show(); Application.DoEvents();
+                    var windows = new System.Collections.Generic.List<Form> { q };
+                    var candidates = f.Service().ReadQueueBook(1);
+                    Func<string, object[], Form> internalForm = (name, args) => (Form)Activator.CreateInstance(typeof(QueueForm).Assembly.GetType("ParatextNoteSuggestions." + name), BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, null, args, null);
+                    windows.Add(internalForm("QueueScopeDialog", new object[] { f.Service(), new QueueScope() }));
+                    windows.Add(internalForm("BulkResolveDialog", new object[] { candidates, null }));
+                    windows.Add(internalForm("SkippedReviewDialog", new object[] { new System.Collections.Generic.List<ReviewRecord>(), (Action<string>)delegate { } }));
+                    windows.Add(new SuggestionPicker(candidates, "GEN 1:3"));
+                    windows.Add(new ReviewForm(f.Service(), f.Service().ReadCandidates()));
+                    Action<bool, string> expect = (ok, what) => { if (!ok) throw new Exception("Theme check failed: " + what); };
+                    foreach (var form in windows) {
+                        form.StartPosition = FormStartPosition.Manual; form.Location = new System.Drawing.Point(-3000, -3000); form.ShowInTaskbar = false;
+                        if (!form.Visible) form.Show(); Application.DoEvents();
+                        expect(form.Font.Name == ParatextTheme.Font.Name && form.BackColor == ParatextTheme.ColorOf("background_control"), form.Text + " font/background");
+                        foreach (var button in Descendants(form).OfType<Button>())
+                            expect(button.FlatStyle == FlatStyle.Standard && button.Height >= ParatextTheme.Scale(24) && button.BackColor == ParatextTheme.ColorOf(button.Enabled ? "background_control" : "background_gray"), form.Text + " button " + button.Text + " " + button.FlatStyle + " " + button.Height + " " + button.BackColor);
+                        foreach (var box in Descendants(form).OfType<TextBox>())
+                            expect(box.BackColor == ParatextTheme.ColorOf(box.ReadOnly ? "background_control" : "background_window"), form.Text + " text box " + box.Name + " " + box.BackColor);
+                        foreach (var combo in Descendants(form).OfType<ComboBox>()) expect(combo.FlatStyle == FlatStyle.Flat, form.Text + " combo");
+                        foreach (var strip in Descendants(form).OfType<ToolStrip>()) expect(strip.RenderMode == ToolStripRenderMode.Custom, form.Text + " toolbar " + strip.RenderMode);
+                        // Narrow windows keep every control inside the window.
+                        form.Size = form.MinimumSize; Application.DoEvents();
+                        // A control below the fold of a scrolling panel is reachable by scrolling.
+                        Func<Control, bool> scrolls = c => { for (var p = c.Parent; p != null && p != form; p = p.Parent) { var area = p as ScrollableControl; if (area != null && area.AutoScroll && (area.VerticalScroll.Visible || area.HorizontalScroll.Visible)) return true; } return false; };
+                        foreach (var control in Descendants(form).Where(c => c.Visible && (c is ButtonBase || c is Label) && !scrolls(c)))
+                            expect(form.ClientRectangle.Contains(form.RectangleToClient(control.RectangleToScreen(new System.Drawing.Rectangle(0, 0, control.Width, control.Height)))), form.Text + " at " + form.Size + ": " + control.GetType().Name + " " + control.Text + " outside");
+                        // Lists and editors keep a usable height rather than collapsing to a line.
+                        foreach (var control in Descendants(form).Where(c => c.Visible && (c is ListBox || (c is TextBox && ((TextBox)c).Multiline)) && !scrolls(c)))
+                            expect(control.Height >= ParatextTheme.Scale(40), form.Text + " at " + form.Size + ": " + control.GetType().Name + " collapsed to " + control.Height);
+                        using (var bitmap = new System.Drawing.Bitmap(form.Width, form.Height)) {
+                            form.DrawToBitmap(bitmap, new System.Drawing.Rectangle(0, 0, form.Width, form.Height));
+                            bitmap.Save(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "theme-" + form.GetType().Name + ".png"));
+                        }
+                        if (form != q) form.Close();
+                    }
+                    Check(ParatextTheme.ImageOf("prev_left") != null && ParatextTheme.ColorOf("text_normal").ToArgb() != 0);
+                    Check(f.Writes == 0 && f.Resolves == 0); q.Close();
                 }
             });
             test("same-verse reveal hops only the project window before restoring the pinned target in the selected group", delegate {
@@ -772,7 +815,13 @@ namespace NoteSuggestionsTests
                     {
                         q.Size = size; Application.DoEvents();
                         q.WindowState = FormWindowState.Minimized; Application.DoEvents(); q.WindowState = FormWindowState.Normal; Application.DoEvents();
-                        foreach (string name in new[] { "passageReference", "heading", "scopeLabel", "region", "original", "replacement", "commentPreset", "comment", "deletion", "reviewed", "manual", "previous", "next", "back", "apply", "reject", "pause", "information" })
+                        // Toolbar commands overflow into Paratext's chevron menu rather than clipping.
+                        foreach (string name in new[] { "filters", "bulk", "recovery", "information" }) {
+                            var item = Field<ToolStripItem>(q, name);
+                            Check(item.Owner != null && item.Owner.Visible && item.Placement != ToolStripItemPlacement.None);
+                        }
+                        Check(Field<ToolStripItem>(q, "information").Placement == ToolStripItemPlacement.Main);
+                        foreach (string name in new[] { "passageReference", "heading", "scopeLabel", "region", "original", "replacement", "commentPreset", "comment", "deletion", "reviewed", "manual", "previous", "next", "back", "apply", "reject", "pause" })
                         {
                             Control control = Field<Control>(q, name);
                             var bounds = q.RectangleToClient(control.RectangleToScreen(control.ClientRectangle));

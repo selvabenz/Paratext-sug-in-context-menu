@@ -31,6 +31,7 @@
     <Compile Include="ReviewProgress.cs" />
     <Compile Include="QueueForm.cs" />
     <Compile Include="QueueControl.cs" />
+    <Compile Include="ParatextTheme.cs" />
     <Compile Include="QueueScope.cs" />
     <Compile Include="BulkResolveDialog.cs" />
     <Compile Include="ReviewReports.cs" />

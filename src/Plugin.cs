@@ -124,36 +124,42 @@ namespace ParatextNoteSuggestions
     }
     public sealed class SuggestionPicker : Form
     {
+        static int S(int pixels) { return ParatextTheme.Scale(pixels); }
         public NoteCandidate SelectedCandidate { get; private set; }
         public bool RevertRequested { get; private set; }
         public SuggestionPicker(IList<NoteCandidate> candidates, string reference)
         {
             Text = "Note suggestions · " + reference;
-            Font = new Font("Segoe UI", 10); AutoScaleMode = AutoScaleMode.Dpi;
-            StartPosition = FormStartPosition.CenterParent; ShowInTaskbar = false;
-            FormBorderStyle = FormBorderStyle.SizableToolWindow;
-            Size = new Size(620, Math.Min(650, 215 + Math.Min(12, candidates.Count) * 65)); MinimumSize = new Size(390, 215);
-            var list = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, Padding = new Padding(10) };
-            var label = new Label { Text = candidates.Count == 0 ? "No unresolved notes for this passage." : candidates.Count + " proposal(s). Apply entries change project Scripture; Review entries open the source and choices.", AutoSize = false, Height = 48, Width = 555 };
+            ParatextTheme.Window(this);
+            StartPosition = FormStartPosition.CenterParent; ShowInTaskbar = false; MinimizeBox = false; MaximizeBox = false;
+            Size = new Size(S(600), Math.Min(S(650), S(190) + Math.Min(12, candidates.Count) * S(58))); MinimumSize = new Size(S(340), S(300));
+            var list = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, Padding = new Padding(S(10), S(10), S(10), 0) };
+            var label = new Label { Text = candidates.Count == 0 ? "No unresolved notes for this passage." : candidates.Count + " proposal(s). Apply entries change project Scripture; Review entries open the source and choices.", AutoSize = true, Margin = new Padding(0, 0, 0, S(6)) };
             list.Controls.Add(label);
             foreach (var candidate in candidates.Take(12))
             {
                 var captured = candidate;
                 string prefix = candidate.Proposal.Route == ProposalRoute.Apply ? "Apply: " : "Review: ";
                 string value = candidate.Proposal.Suggested.Length == 0 ? candidate.Proposal.Category : candidate.Proposal.Suggested;
-                var button = new Button { Text = prefix + NoteParser.Preview(value, 65) + "\r\n" + candidate.Proposal.Category + " · " + candidate.Proposal.Pass, Width = 555, Height = 60, TextAlign = ContentAlignment.MiddleLeft, UseMnemonic = false };
+                var button = ParatextTheme.CommandButton(prefix + NoteParser.Preview(value, 65) + "\r\n" + candidate.Proposal.Category + " · " + candidate.Proposal.Pass);
+                button.AutoSize = false; button.Height = S(50); button.TextAlign = ContentAlignment.MiddleLeft; button.Margin = new Padding(0, 0, 0, S(4));
+                button.Image = ParatextTheme.ImageOf(candidate.Proposal.Route == ProposalRoute.Apply ? "Checkmark" : "edit_pencil");
+                button.ImageAlign = ContentAlignment.MiddleLeft; button.TextImageRelation = TextImageRelation.ImageBeforeText;
                 button.Click += delegate { SelectedCandidate = captured; DialogResult = DialogResult.OK; };
                 list.Controls.Add(button);
             }
-            var actions = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 90, Padding = new Padding(10), WrapContents = true };
-            var review = new Button { Text = "Review all / choose correction…", AutoSize = true };
+            var review = ParatextTheme.CommandButton("Review all / choose correction…");
             review.Click += delegate { DialogResult = DialogResult.OK; };
-            var revert = new Button { Text = "Revert last plugin edit…", AutoSize = true };
+            var revert = ParatextTheme.CommandButton("Revert last plugin edit…");
             revert.Click += delegate { RevertRequested = true; DialogResult = DialogResult.OK; };
-            var close = new Button { Text = "Close", AutoSize = true, DialogResult = DialogResult.Cancel };
-            CancelButton = close; actions.Controls.Add(review); actions.Controls.Add(revert); actions.Controls.Add(close);
-            Controls.Add(list); Controls.Add(actions);
-            list.SizeChanged += delegate { int width = Math.Max(280, list.ClientSize.Width - 40); foreach (Control control in list.Controls) control.Width = width; };
+            var close = ParatextTheme.CommandButton("Close"); close.DialogResult = DialogResult.Cancel;
+            CancelButton = close;
+            Controls.Add(list); Controls.Add(ParatextTheme.DialogButtons(review, revert, close));
+            list.SizeChanged += delegate {
+                int width = Math.Max(S(200), list.ClientSize.Width - list.Padding.Horizontal - SystemInformation.VerticalScrollBarWidth);
+                label.MaximumSize = new Size(width, 0);
+                foreach (Control control in list.Controls) if (control is Button) control.Width = width;
+            };
         }
     }
 }

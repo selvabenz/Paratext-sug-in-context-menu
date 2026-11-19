@@ -53,7 +53,7 @@ namespace NoteSuggestionsTests
                 using (var p = new ReviewProgress(root, f.ProjectId)) p.SaveSkipped(candidate, "Saved reason: target needs individual review.");
                 using (var q = QueueTests.Queue(f, root)) {
                     q.Show(); Application.DoEvents();
-                    var icon = Field<Button>(q, "information"); var status = Field<Label>(q, "status");
+                    var icon = Field<ToolStripButton>(q, "information"); var status = Field<Label>(q, "status");
                     Check(icon.Visible && icon.AccessibleName == "Review information" && status.Parent == null);
                     icon.PerformClick(); Application.DoEvents();
                     var window = Field<Form>(q, "informationWindow"); var details = Field<TextBox>(q, "informationText");

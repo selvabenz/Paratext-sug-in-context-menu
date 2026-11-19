@@ -22,10 +22,12 @@ namespace ParatextNoteSuggestions
         readonly HashSet<string> duplicateIds = new HashSet<string>();
         readonly HashSet<string> seen = new HashSet<string>();
         readonly Queue<int> books;
-        readonly ComboBox startBook = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 110 };
+        readonly ComboBox startBook = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = ParatextTheme.Scale(110) };
         readonly Button startFromBook = Button("Start from book");
-        readonly Button previous = Button("Previous"), next = Button("Next"), filters = Button("Filters..."), recovery = Button("Recovery");
-        readonly ComboBox syncGroup = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 85 };
+        readonly Button previous = Button("Previous"), next = Button("Next");
+        readonly ToolStripButton filters = ParatextTheme.ToolButton("Filters...", "parameters", "Choose books, note status, category and discussion text"),
+            recovery = ParatextTheme.ToolButton("Recovery", "history", "Interrupted applies and pending note resolutions in all books");
+        readonly ComboBox syncGroup = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = ParatextTheme.Scale(85) };
         readonly Label scopeLabel = new Label { AutoSize = true }, navigationLabel = new Label { AutoSize = true };
         readonly Timer navigationTimer = new Timer { Interval = 150 };
         QueueScope scope;
@@ -46,8 +48,10 @@ namespace ParatextNoteSuggestions
         readonly Timer indexTimer = new Timer { Interval = 30 };
         readonly Timer draftTimer = new Timer { Interval = 600 };
         readonly Label passageReference = new Label(), heading = new Label(), status = new Label();
-        readonly ProgressBar activityProgress = new ProgressBar { Width = 170, Height = 18 };
-        readonly Label activityLabel = new Label { AutoSize = true, Padding = new Padding(6, 0, 0, 0) };
+        // Paratext reports progress in a status bar along the bottom of the window.
+        readonly StatusStrip activityStrip = new StatusStrip { SizingGrip = false, Renderer = ParatextTheme.Renderer(), Font = ParatextTheme.Font };
+        readonly ToolStripProgressBar activityProgress = new ToolStripProgressBar();
+        readonly ToolStripStatusLabel activityLabel = new ToolStripStatusLabel { Spring = true, TextAlign = ContentAlignment.MiddleLeft };
         int indexingTotal;
         Form activityWindow;
         TextBox activityDetails;
@@ -58,32 +62,31 @@ namespace ParatextNoteSuggestions
             activityProgress.Maximum = Math.Max(1, total);
             activityProgress.Value = Math.Max(0, Math.Min(done, activityProgress.Maximum));
             activityProgress.Visible = true;
-            activityProgress.Refresh(); activityLabel.Refresh();
+            activityStrip.Refresh();
         }
         void ActivityComplete(string summary, bool showPopup = false)
         {
             activityProgress.Style = ProgressBarStyle.Continuous;
             activityProgress.Value = activityProgress.Maximum;
             activityLabel.Text = "Activity finished";
-            activityProgress.Refresh(); activityLabel.Refresh();
+            activityStrip.Refresh();
             if (!showPopup || !Visible || IsDisposed) return;
             if (activityWindow != null && !activityWindow.IsDisposed) {
                 activityDetails.Text = summary;
                 activityWindow.Activate(); return;
             }
-            var popup = new Form { Text = "Review queue activity", Font = Font, Size = new Size(530, 280),
-                MinimumSize = new Size(360, 220), StartPosition = FormStartPosition.CenterParent, ShowInTaskbar = false };
+            var popup = new Form { Text = "Review queue activity", Size = new Size(ParatextTheme.Scale(530), ParatextTheme.Scale(280)),
+                MinimumSize = new Size(ParatextTheme.Scale(320), ParatextTheme.Scale(200)), StartPosition = FormStartPosition.CenterParent, ShowInTaskbar = false, MinimizeBox = false };
+            ParatextTheme.Window(popup);
             activityWindow = popup;
-            activityDetails = new TextBox { Text = summary, Multiline = true, ReadOnly = true, Dock = DockStyle.Fill,
-                ScrollBars = ScrollBars.Vertical, BackColor = Color.White };
-            popup.Controls.Add(activityDetails);
-            var close = new Button { Text = "OK", Dock = DockStyle.Bottom, Height = 36, DialogResult = DialogResult.OK };
-            close.Click += delegate { popup.Close(); }; popup.Controls.Add(close); popup.AcceptButton = close;
+            activityDetails = new TextBox { Text = summary, Multiline = true, ReadOnly = true, Dock = DockStyle.Fill, ScrollBars = ScrollBars.Vertical };
+            var body = new Panel { Dock = DockStyle.Fill, Padding = new Padding(ParatextTheme.Scale(8), ParatextTheme.Scale(8), ParatextTheme.Scale(8), 0) }; body.Controls.Add(activityDetails);
+            var close = ParatextTheme.CommandButton("OK"); close.DialogResult = DialogResult.OK;
+            close.Click += delegate { popup.Close(); }; popup.Controls.Add(body); popup.Controls.Add(ParatextTheme.DialogButtons(close)); popup.AcceptButton = close;
             popup.Show(this);
         }
-        readonly TextBox queueLog = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill, BackColor = Color.White };
-        readonly Button information = Button("ⓘ");
-        readonly ToolTip informationTip = new ToolTip();
+        readonly TextBox queueLog = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill };
+        readonly ToolStripButton information = ParatextTheme.ToolButton("Review information", "info", null);
         readonly HashSet<string> unreadableSources = new HashSet<string>();
         Form informationWindow;
         TextBox informationText;
@@ -92,7 +95,8 @@ namespace ParatextNoteSuggestions
         readonly CheckBox reviewed = new CheckBox { Text = "I reviewed this exact correction", AutoSize = true };
         readonly CheckBox deletion = new CheckBox { Text = "Explicitly delete the original text", AutoSize = true };
         readonly Button apply = Button("Apply + next"), reject = Button("Reject + next"), manual = Button("Completed manually / no change"), retry = Button("Verified no edit; allow retry"), pause = Button("Pause"), later = Button("Leave for later"), back = Button("Return to passage");
-        readonly Button bulk = Button("Bulk resolve..."), bulkSandhi = Button("Bulk apply Sandhi..."), bulkTypos = Button("Bulk apply confirmed typos...");
+        readonly ToolStripButton bulk = ParatextTheme.ToolButton("Bulk resolve...", "tickall", "Review several filtered proposals together");
+        readonly Button bulkSandhi = Button("Bulk apply Sandhi..."), bulkTypos = Button("Bulk apply confirmed typos...");
         readonly Button skippedReview = Button("Manual review (0)");
         string requestedManualId;
         readonly Button resolve = Button("Retry note resolution");
@@ -137,28 +141,33 @@ namespace ParatextNoteSuggestions
             if (reportProjectDirectory == null && File.Exists(savedFolder)) reportProjectDirectory = XElement.Load(savedFolder).Value;
             if (reportProjectDirectory == null || !ProjectReportDirectory.Matches(reportProjectDirectory, owner.ProjectId)) reportProjectDirectory = ProjectReportDirectory.Find(owner.ProjectName, owner.ProjectId);
             Text = "Note review queue - " + owner.ProjectName;
-            Font = new Font("Segoe UI", 10); BackColor = Color.FromArgb(245, 247, 250); AutoScaleMode = AutoScaleMode.Dpi;
+            ParatextTheme.Window(this);
             var area = Screen.PrimaryScreen.WorkingArea;
-            Size = new Size(Math.Min(760, area.Width - 30), Math.Min(900, area.Height - 35));
-            MinimumSize = new Size(450, 640); StartPosition = FormStartPosition.CenterScreen;
-            var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, Padding = new Padding(8) };
+            Size = new Size(Math.Min(ParatextTheme.Scale(760), area.Width - 30), Math.Min(ParatextTheme.Scale(900), area.Height - 35));
+            MinimumSize = new Size(ParatextTheme.Scale(450), ParatextTheme.Scale(640)); StartPosition = FormStartPosition.CenterScreen;
+            // Paratext tool-window layout: command toolbar, content, status bar with the loader.
+            var toolbar = ParatextTheme.ToolBar();
+            toolbar.Items.Add(filters); toolbar.Items.Add(bulk); toolbar.Items.Add(recovery);
+            information.Alignment = ToolStripItemAlignment.Right; information.DisplayStyle = ToolStripItemDisplayStyle.Image;
+            toolbar.Items.Add(information);
+            var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3, Padding = new Padding(ParatextTheme.Scale(8), ParatextTheme.Scale(6), ParatextTheme.Scale(8), ParatextTheme.Scale(4)) };
             root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            passageReference.Font = new Font("Segoe UI Semibold", 15); passageReference.AutoSize = true;
-            passageReference.ForeColor = Color.FromArgb(30, 49, 70);
-            heading.Font = Font; heading.ForeColor = Color.FromArgb(30, 49, 70);
-            heading.AutoSize = true; heading.MaximumSize = new Size(690, 0);
-            var top = new TableLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Dock = DockStyle.Top, ColumnCount = 1, RowCount = 4 };
+            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            // Only the reference is enlarged; the rest of the header uses the normal window font.
+            passageReference.Font = ParatextTheme.Larger(Font, 1.6f); passageReference.AutoSize = true; passageReference.Margin = new Padding(0, 0, 0, ParatextTheme.Scale(2));
+            heading.AutoSize = true; heading.Margin = new Padding(0, 0, 0, ParatextTheme.Scale(2));
+            scopeLabel.Tag = ParatextTheme.KeepColour; scopeLabel.ForeColor = ParatextTheme.ColorOf("text_dimmed"); scopeLabel.Margin = new Padding(0, 0, 0, ParatextTheme.Scale(4));
+            navigationLabel.Tag = ParatextTheme.KeepColour; navigationLabel.ForeColor = ParatextTheme.ColorOf("text_dimmed");
+            var top = new TableLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Dock = DockStyle.Top, ColumnCount = 1, RowCount = 3, Margin = new Padding(0) };
             top.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            for (int i = 0; i < 4; i++) top.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            var bookPicker = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill };
-            bookPicker.Controls.Add(new Label { Text = "Review starting at", AutoSize = true, Padding = new Padding(0, 6, 0, 0) });
+            for (int i = 0; i < 3; i++) top.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            var bookPicker = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Margin = new Padding(0) };
+            bookPicker.Controls.Add(new Label { Text = "Review starting at", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0, ParatextTheme.Scale(6), ParatextTheme.Scale(4), 0) });
             bookPicker.Controls.Add(startBook); bookPicker.Controls.Add(startFromBook);
-            var scopePicker = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Dock = DockStyle.Top }; scopePicker.Controls.Add(filters); scopePicker.Controls.Add(bulk); scopePicker.Controls.Add(recovery);
             syncGroup.Items.AddRange(Enum.GetValues(typeof(SyncReferenceGroup)).Cast<object>().ToArray()); syncGroup.SelectedItem = owner.NavigationGroup;
             syncGroup.SelectedIndexChanged += delegate { owner.NavigationGroup = (SyncReferenceGroup)syncGroup.SelectedItem; };
-            top.Controls.Add(passageReference, 0, 0); top.Controls.Add(heading, 0, 1); top.Controls.Add(scopeLabel, 0, 2); top.Controls.Add(scopePicker, 0, 3); root.Controls.Add(top, 0, 0);
+            top.Controls.Add(passageReference, 0, 0); top.Controls.Add(heading, 0, 1); top.Controls.Add(scopeLabel, 0, 2); root.Controls.Add(top, 0, 0);
             firstBook = progress.StartBook();
             foreach (int number in owner.QueueBooks()) startBook.Items.Add(new BookChoice { Number = number, Code = owner.QueueBookCode(number) });
             if (startBook.Items.Count > 0) startBook.SelectedIndex = Math.Max(0, startBook.Items.Cast<BookChoice>().ToList().FindIndex(b => b.Number == firstBook));
@@ -170,8 +179,8 @@ namespace ParatextNoteSuggestions
             bulkSandhi.Click += delegate { Guard(BulkSandhi); };
             bulkTypos.Click += delegate { Guard(BulkConfirmedTypos); };
             previous.Click += delegate { Guard(delegate { Browse(-1); }); }; next.Click += delegate { Guard(delegate { Browse(1); }); };
-            var fields = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, AutoScroll = true, Padding = new Padding(2) };
-            fields.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 105));
+            var fields = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, AutoScroll = true, Padding = new Padding(ParatextTheme.Scale(4)) };
+            fields.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             fields.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             source.ReadOnly = true; source.Dock = DockStyle.Fill;
             Add(fields, "Target region", region); region.Items.AddRange(Enum.GetValues(typeof(ContentRegion)).Cast<object>().ToArray());
@@ -184,50 +193,53 @@ namespace ParatextNoteSuggestions
                 fields.RowStyles.Add(new RowStyle(SizeType.AutoSize));
                 fields.Controls.Add(control, 0, row); fields.SetColumnSpan(control, 2);
             }
-            var tabs = new TabControl { Dock = DockStyle.Fill };
-            var correctionTab = new TabPage("Review") { BackColor = Color.White, Padding = new Padding(4) }; correctionTab.Controls.Add(fields);
-            var sourceTab = new TabPage("Source discussion"); sourceTab.Controls.Add(source);
+            var tabs = new TabControl { Dock = DockStyle.Fill, Margin = new Padding(0, ParatextTheme.Scale(2), 0, ParatextTheme.Scale(2)) };
+            var correctionTab = new TabPage("Review") { Padding = new Padding(ParatextTheme.Scale(2)) }; correctionTab.Controls.Add(fields);
+            var sourceTab = new TabPage("Source discussion") { Padding = new Padding(ParatextTheme.Scale(4)) }; sourceTab.Controls.Add(source);
             tabs.TabPages.Add(correctionTab); tabs.TabPages.Add(sourceTab); root.Controls.Add(tabs);
-            // Keep the review header compact; infrequent navigation settings live with tools.
-            var tools = new FlowLayoutPanel { AutoScroll = true, Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false };
-            tools.Controls.Add(new Label { Text = "Navigation settings", AutoSize = true, Font = new Font("Segoe UI Semibold", 11) });
-            tools.Controls.Add(bookPicker);
-            var groupPicker = new FlowLayoutPanel { AutoSize = true };
-            groupPicker.Controls.Add(new Label { Text = "Scroll group", AutoSize = true, Padding = new Padding(0, 6, 0, 0) }); groupPicker.Controls.Add(syncGroup);
+            // Infrequent settings and recovery live on Tools, grouped like a Paratext settings page.
+            var tools = new FlowLayoutPanel { AutoScroll = true, Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(ParatextTheme.Scale(8)) };
+            Action<string> section = delegate(string title) {
+                tools.Controls.Add(new Label { Text = title, AutoSize = true, Font = ParatextTheme.Bold(Font), Margin = new Padding(0, tools.Controls.Count == 0 ? 0 : ParatextTheme.Scale(12), 0, ParatextTheme.Scale(4)) });
+            };
+            section("Navigation"); tools.Controls.Add(bookPicker);
+            var groupPicker = new FlowLayoutPanel { AutoSize = true, Margin = new Padding(0) };
+            groupPicker.Controls.Add(new Label { Text = "Scroll group", AutoSize = true, Margin = new Padding(0, ParatextTheme.Scale(6), ParatextTheme.Scale(4), 0) }); groupPicker.Controls.Add(syncGroup);
             tools.Controls.Add(groupPicker); tools.Controls.Add(navigationLabel);
-            foreach (var b in new[] { bulkSandhi, bulkTypos, skippedReview, retry, resolve, later, viewReport, reportFolder }) tools.Controls.Add(b);
-            var export = Button("Export decisions..."); tools.Controls.Add(export);
+            section("Bulk corrections"); foreach (var b in new[] { bulkSandhi, bulkTypos, skippedReview }) tools.Controls.Add(b);
+            section("Recovery"); foreach (var b in new[] { retry, resolve, later }) tools.Controls.Add(b);
+            section("Reports"); var export = Button("Export decisions...");
+            foreach (var b in new[] { viewReport, reportFolder, export }) tools.Controls.Add(b);
             var toolsTab = new TabPage("Tools"); toolsTab.Controls.Add(tools); tabs.TabPages.Add(toolsTab);
             queueLog.Name = "queueLog"; queueLog.AccessibleName = "Queue log";
-            var logTab = new TabPage("Log"); logTab.Controls.Add(queueLog); tabs.TabPages.Add(logTab);
-            var actions = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Dock = DockStyle.Fill, WrapContents = true, Margin = new Padding(0, 3, 0, 0) };
+            var logTab = new TabPage("Log") { Padding = new Padding(ParatextTheme.Scale(4)) }; logTab.Controls.Add(queueLog); tabs.TabPages.Add(logTab);
+            // Wraps onto a second row in a narrow window or docked pane.
+            var actions = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Dock = DockStyle.Fill, WrapContents = true, Margin = new Padding(0) };
             foreach (var b in new[] { previous, next, back, apply, reject, pause }) actions.Controls.Add(b);
             root.Controls.Add(actions);
             information.Name = "reviewInformation"; information.AccessibleName = "Review information";
-            information.Font = new Font("Segoe UI", 14); information.Anchor = AnchorStyles.Right;
-            informationTip.SetToolTip(information, "Review information: current status and saved bulk skip reason");
+            information.ToolTipText = "Review information: current status and saved bulk skip reason";
             information.Click += delegate { ShowReviewInformation(); };
             status.TextChanged += delegate {
                 information.AccessibleDescription = status.Text;
                 if (informationText != null && !informationText.IsDisposed) informationText.Text = status.Text;
                 RefreshQueueLog();
             };
-            var activity = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill };
-            activity.Controls.Add(activityProgress); activity.Controls.Add(activityLabel); activity.Controls.Add(information);
-            root.Controls.Add(activity); Controls.Add(root);
+            activityProgress.Size = new Size(ParatextTheme.Scale(160), ParatextTheme.Scale(16));
+            activityStrip.Items.Add(activityProgress); activityStrip.Items.Add(activityLabel);
+            Controls.Add(root); Controls.Add(toolbar); Controls.Add(activityStrip);
             indexingTotal = books.Count; Activity("Loading review notes", 0, indexingTotal);
-            apply.BackColor = Color.FromArgb(27, 97, 150); apply.ForeColor = Color.White; apply.FlatAppearance.BorderSize = 0;
             Action reflow = delegate {
                 if (WindowState == FormWindowState.Minimized || root.ClientSize.Width < 300) return;
                 int width = root.ClientSize.Width - root.Padding.Horizontal - 6;
-                bookPicker.MaximumSize = scopePicker.MaximumSize = new Size(width, 0);
-                passageReference.MaximumSize = heading.MaximumSize = scopeLabel.MaximumSize = navigationLabel.MaximumSize = new Size(width, 0);
+                passageReference.MaximumSize = heading.MaximumSize = scopeLabel.MaximumSize = new Size(width, 0);
+                navigationLabel.MaximumSize = bookPicker.MaximumSize = new Size(Math.Max(200, tools.ClientSize.Width - tools.Padding.Horizontal - 4), 0);
                 foreach (Control control in fields.Controls) {
-                    control.Margin = new Padding(2);
+                    control.Margin = new Padding(ParatextTheme.Scale(2));
                     if (control is CheckBox || control is Button) control.MaximumSize = new Size(Math.Max(180, fields.ClientSize.Width - 10), 0);
                 }
             };
-            fields.SizeChanged += delegate { reflow(); }; root.SizeChanged += delegate { reflow(); };
+            fields.SizeChanged += delegate { reflow(); }; root.SizeChanged += delegate { reflow(); }; tools.SizeChanged += delegate { reflow(); };
             UpdateScopeLabel(); RestoreLayout();
             status.Text = "Indexing notes... Pause or close to stop.";
             heading.Text = owner.ProjectName + " - preparing review queue";
@@ -285,7 +297,7 @@ namespace ParatextNoteSuggestions
         {
             if (disposing && !resourcesDisposed)
             {
-                resourcesDisposed = true; indexTimer.Dispose(); draftTimer.Dispose(); navigationTimer.Dispose(); informationTip.Dispose();
+                resourcesDisposed = true; indexTimer.Dispose(); draftTimer.Dispose(); navigationTimer.Dispose();
                 status.Dispose();
                 if (informationWindow != null) informationWindow.Dispose();
                 if (inlineMenu != null) inlineMenu.Dispose();
@@ -317,18 +329,18 @@ namespace ParatextNoteSuggestions
         {
             if (!IsInlineTarget(item)) return;
             if (inlineMenu != null) inlineMenu.Dispose();
-            inlineMenu = new ContextMenuStrip { ShowImageMargin = false };
+            inlineMenu = new ContextMenuStrip { ShowImageMargin = true, Renderer = ParatextTheme.Renderer(), Font = ParatextTheme.Font };
             inlineMenu.Items.Add(new ToolStripMenuItem("Suggested: " + NoteParser.Preview(item.Proposal.Suggested, 65).Replace("&", "&&")) { Enabled = false });
             inlineMenu.Items.Add(new ToolStripSeparator());
-            var accept = new ToolStripMenuItem("Apply suggestion...") { Enabled = CanInlineDecision(item, "Applied") };
-            var decline = new ToolStripMenuItem("Reject suggestion...") { Enabled = CanInlineDecision(item, "Rejected") };
-            var ignore = new ToolStripMenuItem("Ignore for now (leave unresolved)") { Enabled = CanInlineDecision(item, "Ignored") };
+            var accept = new ToolStripMenuItem("Apply suggestion...", ParatextTheme.ImageOf("Checkmark")) { Enabled = CanInlineDecision(item, "Applied") };
+            var decline = new ToolStripMenuItem("Reject suggestion...", ParatextTheme.ImageOf("deny_blue")) { Enabled = CanInlineDecision(item, "Rejected") };
+            var ignore = new ToolStripMenuItem("Ignore for now (leave unresolved)", ParatextTheme.ImageOf("clock")) { Enabled = CanInlineDecision(item, "Ignored") };
             accept.Click += delegate { PromptInlineDecision(item, "Applied"); };
             decline.Click += delegate { PromptInlineDecision(item, "Rejected"); };
             ignore.Click += delegate { CompleteInlineDecision(item, "Ignored", ""); };
             inlineMenu.Items.Add(accept); inlineMenu.Items.Add(decline); inlineMenu.Items.Add(ignore);
             inlineMenu.Items.Add(new ToolStripSeparator());
-            inlineMenu.Items.Add("Review source / edit correction in queue", null, delegate {
+            inlineMenu.Items.Add("Review source / edit correction in queue", ParatextTheme.ImageOf("edit_pencil"), delegate {
                 if (IsInlineTarget(item)) Reveal();
             });
             inlineMenu.Show(location);
@@ -337,32 +349,30 @@ namespace ParatextNoteSuggestions
         {
             if (!CanInlineDecision(item, outcome)) return;
             using (var dialog = new Form { Text = outcome == "Applied" ? "Apply note suggestion" : "Reject note suggestion",
-                Font = Font, AutoScaleMode = AutoScaleMode.Dpi, StartPosition = FormStartPosition.CenterParent,
+                StartPosition = FormStartPosition.CenterParent,
                 // An inline action can originate while this queue is minimized. Keep its
                 // confirmation reachable independently through the taskbar and Alt+Tab.
-                Size = new Size(620, 560), MinimumSize = new Size(440, 400), ShowInTaskbar = true, MinimizeBox = false, MaximizeBox = false })
+                Size = new Size(ParatextTheme.Scale(620), ParatextTheme.Scale(540)), MinimumSize = new Size(ParatextTheme.Scale(360), ParatextTheme.Scale(360)), ShowInTaskbar = true, MinimizeBox = false, MaximizeBox = false })
             {
-                var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 5, Padding = new Padding(10) };
+                ParatextTheme.Window(dialog);
+                var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, Padding = new Padding(ParatextTheme.Scale(10), ParatextTheme.Scale(10), ParatextTheme.Scale(10), 0) };
                 layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
                 layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
                 layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-                layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 80));
-                layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                layout.RowStyles.Add(new RowStyle(SizeType.Absolute, ParatextTheme.Scale(80)));
                 layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
                 var preview = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill,
                     Text = item.DisplayReference + " | " + item.Proposal.Category + "\r\n\r\nOriginal: " + item.Proposal.Original +
                     "\r\nSuggested: " + item.Proposal.Suggested + "\r\n\r\n" + item.NoteText };
                 var decisionComment = new TextBox { Multiline = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill, Text = comment.Text };
                 var acknowledge = new CheckBox { Text = "I reviewed this exact correction", AutoSize = true, Visible = outcome == "Applied" };
-                var confirm = new Button { Text = outcome == "Applied" ? "Apply" : "Reject", AutoSize = true, DialogResult = DialogResult.OK };
-                var cancel = new Button { Text = "Cancel", AutoSize = true, DialogResult = DialogResult.Cancel };
+                var confirm = ParatextTheme.CommandButton(outcome == "Applied" ? "Apply" : "Reject"); confirm.DialogResult = DialogResult.OK;
+                var cancel = ParatextTheme.CommandButton("Cancel"); cancel.DialogResult = DialogResult.Cancel;
                 Action enable = delegate { confirm.Enabled = decisionComment.Text.Trim().Length > 0 && (outcome != "Applied" || acknowledge.Checked); };
                 decisionComment.TextChanged += delegate { enable(); }; acknowledge.CheckedChanged += delegate { enable(); }; enable();
-                var buttons = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill };
-                buttons.Controls.Add(confirm); buttons.Controls.Add(cancel);
-                layout.Controls.Add(preview, 0, 0); layout.Controls.Add(new Label { Text = "Decision comment (required)", AutoSize = true }, 0, 1);
-                layout.Controls.Add(decisionComment, 0, 2); layout.Controls.Add(acknowledge, 0, 3); layout.Controls.Add(buttons, 0, 4);
-                dialog.Controls.Add(layout); dialog.AcceptButton = confirm; dialog.CancelButton = cancel;
+                layout.Controls.Add(preview, 0, 0); layout.Controls.Add(new Label { Text = "Decision comment (required)", AutoSize = true, Margin = new Padding(0, ParatextTheme.Scale(8), 0, ParatextTheme.Scale(2)) }, 0, 1);
+                layout.Controls.Add(decisionComment, 0, 2); layout.Controls.Add(acknowledge, 0, 3);
+                dialog.Controls.Add(layout); dialog.Controls.Add(ParatextTheme.DialogButtons(confirm, cancel)); dialog.AcceptButton = confirm; dialog.CancelButton = cancel;
                 dialog.Shown += delegate { decisionComment.Focus(); decisionComment.SelectionStart = decisionComment.TextLength; };
                 if (dialog.ShowDialog(this) == DialogResult.OK && confirm.Enabled)
                     CompleteInlineDecision(item, outcome, decisionComment.Text);
@@ -378,24 +388,26 @@ namespace ParatextNoteSuggestions
             if (outcome == "Applied") reviewed.Checked = true;
             Decide(outcome);
         }
-        static TextBox Box(int height) { return new TextBox { Multiline = true, ScrollBars = ScrollBars.Vertical, Height = height, Dock = DockStyle.Top }; }
-        static Button Button(string text) { var button = new Button { Text = text, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, FlatStyle = FlatStyle.Flat, BackColor = Color.White, Padding = new Padding(4, 1, 4, 1), Margin = new Padding(2), Cursor = Cursors.Hand }; button.FlatAppearance.BorderColor = Color.FromArgb(200, 208, 217); return button; }
+        static TextBox Box(int height) { return new TextBox { Multiline = true, ScrollBars = ScrollBars.Vertical, Height = ParatextTheme.Scale(height), Dock = DockStyle.Top }; }
+        static Button Button(string text) { return ParatextTheme.CommandButton(text); }
         static void Add(TableLayoutPanel panel, string label, Control control)
         {
             int row = panel.RowCount++;
             var box = control as TextBox;
             panel.RowStyles.Add(new RowStyle(box == null ? SizeType.AutoSize : SizeType.Percent, box == null ? 0 : 33.33f));
-            panel.Controls.Add(new Label { Text = label, AutoSize = true, Anchor = AnchorStyles.Top | AnchorStyles.Left, ForeColor = Color.FromArgb(55, 70, 85), Padding = new Padding(0, 3, 0, 0) }, 0, row);
-            if (box != null) { box.MinimumSize = new Size(0, 48); box.Dock = DockStyle.Fill; }
+            panel.Controls.Add(new Label { Text = label, AutoSize = true, Anchor = AnchorStyles.Top | AnchorStyles.Left, Margin = new Padding(ParatextTheme.Scale(2), ParatextTheme.Scale(5), ParatextTheme.Scale(8), 0) }, 0, row);
+            if (box != null) { box.MinimumSize = new Size(0, ParatextTheme.Scale(40)); box.Dock = DockStyle.Fill; }
             panel.Controls.Add(control, 1, row);
         }
         void Guard(Action action) { try { action(); } catch (Exception ex) { Fail(ex); } }
         void ShowReviewInformation()
         {
             if (informationWindow == null || informationWindow.IsDisposed) {
-                informationText = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill, BackColor = Color.White, Text = status.Text, AccessibleName = "Current review details" };
-                informationWindow = new Form { Text = "Review information", Font = Font, Size = new Size(520, 300), MinimumSize = new Size(320, 200), StartPosition = FormStartPosition.CenterParent, ShowInTaskbar = false };
-                informationWindow.Controls.Add(informationText);
+                informationText = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill, Text = status.Text, AccessibleName = "Current review details" };
+                informationWindow = new Form { Text = "Review information", Size = new Size(ParatextTheme.Scale(520), ParatextTheme.Scale(300)), MinimumSize = new Size(ParatextTheme.Scale(300), ParatextTheme.Scale(180)), StartPosition = FormStartPosition.CenterParent, ShowInTaskbar = false, MinimizeBox = false };
+                ParatextTheme.Window(informationWindow);
+                var body = new Panel { Dock = DockStyle.Fill, Padding = new Padding(ParatextTheme.Scale(8)) }; body.Controls.Add(informationText);
+                informationWindow.Controls.Add(body);
                 informationWindow.Show(this);
             }
             else informationWindow.Activate();

@@ -119,9 +119,11 @@ namespace ParatextNoteSuggestions
                 string label = "\u2192 " + (String.IsNullOrWhiteSpace(suggested) ? "Review note" : suggested.Replace('\r', ' ').Replace('\n', ' '));
                 string directory = Path.Combine(Path.GetTempPath(), "ParatextNoteSuggestions", "InlineLabels");
                 Directory.CreateDirectory(directory);
-                string path = Path.Combine(directory, NoteParser.Hash(label + "|" + scale.ToString("R", System.Globalization.CultureInfo.InvariantCulture)) + ".png");
+                // Paratext's light-green background and green text, as for its own suggestion markers.
+                Color back = ParatextTheme.ColorOf("background_light_green"), fore = ParatextTheme.ColorOf("text_correct");
+                string path = Path.Combine(directory, NoteParser.Hash(label + "|" + scale.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + "|" + back.ToArgb() + "|" + fore.ToArgb()) + ".png");
                 if (File.Exists(path)) return path;
-                using (var font = new Font("Segoe UI", (float)(10 * scale)))
+                using (var font = new Font(ParatextTheme.Font.FontFamily, (float)(10 * scale)))
                 {
                     var size = TextRenderer.MeasureText(label, font);
                     size.Width = Math.Min((int)(360 * scale), size.Width) + 8;
@@ -129,8 +131,8 @@ namespace ParatextNoteSuggestions
                     using (var bitmap = new Bitmap(size.Width, size.Height))
                     using (var graphics = Graphics.FromImage(bitmap))
                     {
-                        graphics.Clear(Color.FromArgb(225, 242, 226));
-                        TextRenderer.DrawText(graphics, label, font, new Rectangle(4, 2, size.Width - 8, size.Height - 4), Color.FromArgb(20, 85, 35),
+                        graphics.Clear(back);
+                        TextRenderer.DrawText(graphics, label, font, new Rectangle(4, 2, size.Width - 8, size.Height - 4), fore,
                             TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
                         bitmap.Save(path, ImageFormat.Png);
                     }

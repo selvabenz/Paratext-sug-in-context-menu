@@ -26,12 +26,13 @@ namespace ParatextNoteSuggestions
         public QueueControl(NoteSuggestionsPlugin owner)
         {
             plugin = owner ?? NoteSuggestionsPlugin.Current ?? new NoteSuggestionsPlugin();
-            Font = new Font("Segoe UI", 10); BackColor = Color.FromArgb(245, 247, 250);
+            Font = ParatextTheme.Font; BackColor = ParatextTheme.ColorOf("background_control"); ForeColor = ParatextTheme.ColorOf("text_normal");
         }
         public override void OnAddedToParent(IPluginChildWindow parent, IWindowPluginHost windowHost, string state)
         {
             window = parent; host = windowHost;
             parent.SetTitle("Note review queue", false, true);
+            try { parent.Icon = ParatextTheme.IconFrom("Checkmark"); } catch (Exception) { } // The tab keeps Paratext's plugin icon.
             // The queue pins the project it was opened for; another project gets its own window.
             parent.AllowUserToChangeProject = false;
             parent.WindowClosing += Closing;
@@ -43,11 +44,11 @@ namespace ParatextNoteSuggestions
         void Offer(string message, string action)
         {
             Controls.Clear();
-            var panel = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(12), AutoScroll = true };
-            panel.Controls.Add(new Label { Text = message, AutoSize = true, MaximumSize = new Size(520, 0), Margin = new Padding(3, 3, 3, 10) });
-            var open = new Button { Name = "openQueue", Text = action, AutoSize = true };
+            var panel = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(ParatextTheme.Scale(12)), AutoScroll = true };
+            panel.Controls.Add(ParatextTheme.Wrap(new Label { Text = message, Margin = new Padding(0, 0, 0, ParatextTheme.Scale(10)) }, panel));
+            var open = ParatextTheme.CommandButton(action); open.Name = "openQueue";
             open.Click += delegate { Start(); };
-            panel.Controls.Add(open); Controls.Add(panel);
+            panel.Controls.Add(open); Controls.Add(panel); ParatextTheme.Apply(panel);
         }
         void Start()
         {

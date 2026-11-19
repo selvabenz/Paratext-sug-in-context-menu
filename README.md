@@ -16,6 +16,16 @@ See [the 19 November navigation fix report](NAVIGATION_FIX_REPORT.md) for why th
 
 See [the 18 November review queue fix report](REVIEW_QUEUE_FIX_REPORT.md) for development changes to progress feedback, completion popups, scrolling groups, non-body targeting and reviewer attribution, including validation limits.
 
+## Paratext look and responsive layout (development build, 19 November 2026)
+
+Every plugin window now follows Paratext's own window design. Colours, toolbar icons and the toolbar renderer come from the theme Paratext is running (Default, Bright or a custom theme); outside Paratext the plugin reads the theme files installed with Paratext. Controls are coloured with the same rules as Paratext's own dialogs: standard Windows command buttons, flat drop-down lists, light panel backgrounds and white editable boxes. Text uses the Windows message font, as Paratext's menus and docking tabs do, and windows carry the Paratext icon.
+
+- The review queue has a Paratext toolbar (Filters, Bulk resolve, Recovery, review information) with theme icons; when the pane is narrow, commands move into the toolbar's overflow menu instead of being clipped. Progress appears in a status bar along the bottom. Tools are grouped into Navigation, Bulk corrections, Recovery and Reports.
+- Dialogs place their commands at the bottom right, as Paratext does, and wrap them onto a second row when narrow. Long explanations and check boxes wrap. List/detail windows show the two side by side when wide and one above the other when narrow; details scroll rather than being squeezed.
+- The in-editor suggestion label uses Paratext's light-green background and green text, and the right-click menu shows theme icons. HTML session reports use the same palette.
+
+228 synthetic checks pass, including one that opens every window at its minimum size and checks the theme, buttons and that nothing is clipped. Rendered screenshots are written to `artifacts/bin/theme-*.png`. Live-host acceptance in Paratext's Bright and custom themes and at 150/200% display scaling is still required.
+
 ## Docked queue window (development build, 19 November 2026)
 
 **Review note queue…** now opens as a Paratext child window instead of a separate floating form. It has its own tab and can be docked beside the Scripture editor, tabbed, floated or auto-hidden like Paratext's own tools, and Paratext saves its place with the window layout. A queue window restored at startup shows **Open review queue** and scans nothing until you click it. Closing the tab saves the draft and session report as before; one queue per project.
