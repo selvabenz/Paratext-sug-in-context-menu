@@ -29,8 +29,13 @@ namespace ParatextNoteSuggestions
         readonly Label scopeLabel = new Label { AutoSize = true }, navigationLabel = new Label { AutoSize = true };
         readonly Timer navigationTimer = new Timer { Interval = 150 };
         QueueScope scope;
-        int navigationChecks;
-        bool returnNavigationPending;
+        // One host request is not proof of where the editor ends up: Paratext re-renders the
+        // editor and echoes reference changes between its windows on later UI ticks.
+        enum NavigationPhase { Idle, Start, Reveal, Settle }
+        NavigationPhase navigationPhase;
+        int navigationTicks, navigationStable, navigationRepairs;
+        bool navigationConfirmed;
+        const int NavigationStableTicks = 8, NavigationMaxTicks = 30, NavigationReopenLimit = 2;
         int firstBook;
         sealed class BookChoice
         {
@@ -393,7 +398,7 @@ namespace ParatextNoteSuggestions
         {
             if (busy) return;
             SaveDraft(); progress.SaveScope(selection);
-            indexTimer.Stop(); navigationTimer.Stop(); draftTimer.Stop(); scope = selection;
+            indexTimer.Stop(); StopNavigation(); draftTimer.Stop(); scope = selection;
             items.Clear(); duplicateIds.Clear(); seen.Clear(); books.Clear(); current = null; position = -1; completed = 0;
             owner.HighlightTarget(null);
             foreach (int number in owner.QueueBooks().Where(scope.IncludesBook)) books.Enqueue(number);
@@ -421,34 +426,62 @@ namespace ParatextNoteSuggestions
         }
         void NavigateCurrent()
         {
-            navigationTimer.Stop(); returnNavigationPending = false; if (current == null) return;
+            StopNavigation(); if (current == null) return;
             navigationLabel.Text = "Opening " + current.DisplayReference + " in " + owner.ProjectName + ". Verse navigation; anchor: " + NoteParser.Preview(current.AnchorText ?? "", 60);
-            // Advancing can stay in the same verse, or the editor can still report a verse
-            // that has been manually scrolled out of view. Reveal it just as Return does.
-            returnNavigationPending = true; navigationChecks = 0;
-            try { owner.BeginReturnToPassage(current); }
-            finally { navigationTimer.Start(); }
+            navigationTicks = navigationStable = navigationRepairs = 0; navigationConfirmed = false;
+            // The annotation change is rendered by the host before the first timer tick, so
+            // the navigation request that follows is the last thing to move the editor.
+            try { owner.PrepareHighlight(current); }
+            catch (Exception ex) { owner.ReportFailure(ex); } // The highlight is optional; the verse is still opened.
+            navigationPhase = NavigationPhase.Start; navigationTimer.Start();
         }
+        void StopNavigation() { navigationTimer.Stop(); navigationPhase = NavigationPhase.Idle; }
         void CheckNavigation()
         {
-            if (current == null) { navigationTimer.Stop(); return; }
-            if (returnNavigationPending) {
-                returnNavigationPending = false; owner.Navigate(current);
-                // Allow the host to activate/load the editor before confirming its reference.
-                return;
-            }
-            // Re-send the scroll request after asynchronous project-window activation.
-            if (navigationChecks % 3 == 0) owner.ScrollProjectTo(current);
-            bool visible = owner.NavigationVisible(current);
-            if (visible || ++navigationChecks >= 12)
+            if (current == null || navigationPhase == NavigationPhase.Idle) { StopNavigation(); return; }
+            // A failed scroll request must not pause the review or block a decision.
+            try { AdvanceNavigation(); }
+            catch (Exception ex)
             {
-                navigationTimer.Stop(); navigationLabel.Text = (visible ? "Project window reference confirmed: " : "Navigation requested; window reference not confirmed: ") + current.DisplayReference +
-                    ". Verse-only; anchored text: " + NoteParser.Preview(current.AnchorText ?? "", 60) + ". Scroll group: " + owner.NavigationGroup + ".";
+                StopNavigation(); owner.ReportFailure(ex);
+                navigationLabel.Text = "Navigation to " + current.DisplayReference + " failed: " + ex.Message + " Use Return to passage to try again.";
             }
+        }
+        void AdvanceNavigation()
+        {
+            if (navigationPhase == NavigationPhase.Start)
+            {
+                // Same verse as the previous item, or an editor the reviewer scrolled away
+                // from its own reference: only a real reference change reveals the verse.
+                if (owner.NavigationVisible(current) && owner.BeginReturnToPassage(current)) { navigationPhase = NavigationPhase.Reveal; return; }
+                owner.Navigate(current); navigationPhase = NavigationPhase.Settle; return;
+            }
+            if (navigationPhase == NavigationPhase.Reveal) { owner.Navigate(current); navigationPhase = NavigationPhase.Settle; return; }
+            navigationTicks++;
+            // No render asked for the target verse: the editor kept its loaded text.
+            if (navigationTicks == 2 && owner.HighlightPending) owner.RefreshHighlight();
+            bool visible = owner.NavigationVisible(current);
+            if (visible)
+            {
+                navigationConfirmed = true; navigationStable++;
+                // Also covers an editor that was busy loading when its window took the reference.
+                if (navigationTicks == 4) owner.ReassertNavigation(current, false);
+            }
+            else
+            {
+                // A late echo of the neighbouring verse, a reload after an edit, or a window
+                // that was still opening moved the editor: send the pinned reference again.
+                navigationStable = 0;
+                if (navigationTicks % 2 == 0) owner.ReassertNavigation(current, navigationRepairs++ < NavigationReopenLimit);
+            }
+            if (navigationStable < NavigationStableTicks && navigationTicks < NavigationMaxTicks) return;
+            StopNavigation();
+            navigationLabel.Text = (visible ? "Project window reference confirmed: " : navigationConfirmed ? "Project window moved away again after navigation: " : "Navigation requested; window reference not confirmed: ") + current.DisplayReference +
+                ". Verse-only; anchored text: " + NoteParser.Preview(current.AnchorText ?? "", 60) + ". Scroll group: " + owner.NavigationGroup + ". " + owner.HighlightStatus;
         }
         void Fail(Exception ex)
         {
-            indexTimer.Stop(); draftTimer.Stop(); navigationTimer.Stop(); returnNavigationPending = false; ActivityComplete("Activity stopped: " + ex.Message + " Review paused. Check Recovery before retrying an interrupted write."); paused = true; pause.Text = "Resume"; owner.ReportFailure(ex);
+            indexTimer.Stop(); draftTimer.Stop(); StopNavigation(); ActivityComplete("Activity stopped: " + ex.Message + " Review paused. Check Recovery before retrying an interrupted write."); paused = true; pause.Text = "Resume"; owner.ReportFailure(ex);
             status.Text = ex.Message + " Review paused.";
             try { GenerateReports("Stopped after error", false); } catch (Exception reportError) { owner.ReportFailure(reportError); status.Text += " Report pending; local audit is saved. Use Report folder / View latest report to retry."; }
             EnableActions();
@@ -569,7 +602,7 @@ namespace ParatextNoteSuggestions
         }
         void LoadCurrent()
         {
-            navigationTimer.Stop(); draftTimer.Stop(); blocked = false; current = items[position];
+            StopNavigation(); draftTimer.Stop(); blocked = false; current = items[position];
             try { current = owner.ReloadQueueItem(current, true); }
             catch (Exception ex) { blocked = true; status.Text = ex.Message; }
             if (duplicateIds.Contains(current.StableId)) blocked = true;

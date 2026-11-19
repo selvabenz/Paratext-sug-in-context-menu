@@ -12,6 +12,8 @@ Get the package from [GitHub Releases](https://github.com/selvabenz/Paratext-sug
 
 The user's screenshot shows QA project notes with `Original:`, `Suggested:`, and `Reason:` fields. The menu should surface the existing `Suggested:` correction for the relevant passage. Automatically generating suggestions is outside the initial scope.
 
+See [the 19 November navigation fix report](NAVIGATION_FIX_REPORT.md) for why the editor could miss the queued verse and target text after a queue button, what changed, and the live-host checks still required. The queue now sends the pinned reference directly, keeps checking the project editor for a few seconds and sends it again if the editor moves away, including to the editor's own scroll group.
+
 See [the 18 November review queue fix report](REVIEW_QUEUE_FIX_REPORT.md) for development changes to progress feedback, completion popups, scrolling groups, non-body targeting and reviewer attribution, including validation limits.
 
 ## Review thousands of notes

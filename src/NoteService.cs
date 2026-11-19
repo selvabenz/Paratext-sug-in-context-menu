@@ -83,38 +83,92 @@ namespace ParatextNoteSuggestions
             // unrelated/previously active project window.
             if (NavigationGroup != SyncReferenceGroup.None) host.SetReferenceForSyncGroup(item.TargetReference, NavigationGroup);
         }
-        public void BeginReturnToPassage(NoteCandidate item)
+        // The host ignores a reference its editor already has, even after the user scrolled
+        // that verse out of view. Visit a neighbouring verse first so the following Navigate
+        // is a real reference change. Returns false when the project has no such neighbour.
+        public bool BeginReturnToPassage(NoteCandidate item)
         {
             HighlightTarget(item);
-            // UseExisting can leave a manually scrolled editor unchanged when its reference
-            // already equals the target. Visit a neighbouring verse before returning on the
-            // next UI tick, so Paratext performs a real reference change and reveals the verse.
-            // This also works for an editor outside the synchronized scroll groups.
-            var adjacent = item.TargetReference.GetPreviousVerse(project);
-            if (adjacent == null || SameReference(adjacent, item.TargetReference)) adjacent = item.TargetReference.GetNextVerse(project);
-            var revealReference = adjacent ?? item.TargetReference;
-            host.OpenTextWindowFor(project, OpenWindowBehavior.UseExisting, revealReference);
-            // Grouped editors follow the group's reference. Opening a neighbouring
-            // verse alone does not change that reference; broadcasting only the
-            // final (already selected) target can therefore leave it off-screen.
-            if (NavigationGroup != SyncReferenceGroup.None) host.SetReferenceForSyncGroup(revealReference, NavigationGroup);
+            // Stay inside the chapter: crossing it makes a by-chapter editor load another
+            // chapter only to leave it again on the next UI tick.
+            var target = item.TargetReference;
+            var previous = target.GetPreviousVerse(project); var following = target.GetNextVerse(project);
+            if (previous != null && SameReference(previous, target)) previous = null;
+            if (following != null && SameReference(following, target)) following = null;
+            var adjacent = previous != null && SameChapter(previous, target) ? previous :
+                following != null && SameChapter(following, target) ? following : previous ?? following;
+            if (adjacent == null) return false;
+            // The project window's own scroll group follows this host call. No other group
+            // is sent to the neighbour: every extra window that hops echoes its own reference
+            // change back through the host and can overtake the final target.
+            host.OpenTextWindowFor(project, OpenWindowBehavior.UseExisting, adjacent);
+            return true;
         }
         static bool SameReference(IVerseRef left, IVerseRef right)
-        { return left.BookNum == right.BookNum && left.ChapterNum == right.ChapterNum && left.VerseNum == right.VerseNum; }
+        { return SameChapter(left, right) && left.VerseNum == right.VerseNum; }
+        static bool SameChapter(IVerseRef left, IVerseRef right)
+        { return left.BookNum == right.BookNum && left.ChapterNum == right.ChapterNum; }
+        QueueTargetHighlight Highlight()
+        {
+            var suggestions = plugin as NoteSuggestionsPlugin;
+            return suggestions == null ? null : suggestions.HighlightFor(project);
+        }
         public void HighlightTarget(NoteCandidate item)
         {
-            var suggestions = plugin as NoteSuggestionsPlugin;
-            if (suggestions != null) suggestions.HighlightFor(project).SetTarget(item);
+            var highlight = Highlight();
+            if (highlight != null) highlight.SetTarget(item);
         }
+        // Every annotation change makes the host re-render the editors of this project. When
+        // the editor must load another book anyway, that load renders the new target; asking
+        // for a re-render of the book being left would only delay the navigation.
+        public void PrepareHighlight(NoteCandidate item)
+        {
+            var highlight = Highlight();
+            if (highlight != null) highlight.SetTarget(item, ProjectWindows().Any(w => w.VerseRef.BookNum == item.Book));
+        }
+        public void RefreshHighlight()
+        {
+            var highlight = Highlight();
+            if (highlight != null) highlight.Refresh();
+        }
+        public bool HighlightPending { get { var highlight = Highlight(); return highlight != null && highlight.Pending; } }
+        public string HighlightStatus { get { var highlight = Highlight(); return highlight == null ? "" : highlight.Status; } }
         public void SetInlineMenuHandler(Action<NoteCandidate, System.Drawing.Point> handler)
         {
-            var suggestions = plugin as NoteSuggestionsPlugin;
-            if (suggestions != null) suggestions.HighlightFor(project).ContextMenuRequested = handler;
+            var highlight = Highlight();
+            if (highlight != null) highlight.ContextMenuRequested = handler;
+        }
+        // Scripture editors report a selection; a notes list or another tool of the same
+        // project does not, and its reference says nothing about where the editor is.
+        List<IParatextChildState> ProjectWindows()
+        {
+            var all = host.AllOpenWindows.Where(w => w != null && w.Project != null && w.Project.ID == projectId && w.VerseRef != null).ToList();
+            var editors = all.Where(w => w.Selections != null && w.Selections.OfType<IScriptureTextSelection>().Any()).ToList();
+            return editors.Count > 0 ? editors : all;
         }
         public bool NavigationVisible(NoteCandidate item)
         {
-            return host.AllOpenWindows.Any(w => w.Project != null && w.Project.ID == projectId && w.VerseRef != null &&
-                w.VerseRef.BookNum == item.Book && w.VerseRef.ChapterNum == item.Chapter && w.VerseRef.VerseNum == item.FirstVerse);
+            return ProjectWindows().Any(w => w.VerseRef.BookNum == item.Book && w.VerseRef.ChapterNum == item.Chapter &&
+                (w.VerseRef.VerseNum == item.FirstVerse || (w.VerseRef.RepresentsMultipleVerses && w.VerseRef.AllVerses.Any(v => v.VerseNum == item.FirstVerse))));
+        }
+        // Sends the pinned reference again without activating a window, so a reviewer typing
+        // in the queue keeps the keyboard. The host applies it only to editors that are not
+        // already there. reopen permits the activating host call for an ungrouped editor that
+        // cannot be reached any other way.
+        public void ReassertNavigation(NoteCandidate item, bool reopen)
+        {
+            var windows = ProjectWindows();
+            var groups = windows.Select(w => w.SyncReferenceGroup).Where(g => g != SyncReferenceGroup.None).Distinct().ToList();
+            if (NavigationGroup != SyncReferenceGroup.None && !groups.Contains(NavigationGroup)) groups.Add(NavigationGroup);
+            foreach (var group in groups) host.SetReferenceForSyncGroup(item.TargetReference, group);
+            if (windows.Count > 0 && windows.All(w => w.SyncReferenceGroup != SyncReferenceGroup.None)) return;
+            if (reopen) { host.OpenTextWindowFor(project, OpenWindowBehavior.UseExisting, item.TargetReference); return; }
+            // For the None group the host moves the active window alone, so this is used only
+            // while that window belongs to the pinned project.
+            IParatextChildState active;
+            try { active = host.ActiveWindowState; } catch (Exception) { active = null; } // The host throws when no window is active.
+            if (active != null && active.Project != null && active.Project.ID == projectId && active.SyncReferenceGroup == SyncReferenceGroup.None)
+                host.SetReferenceForSyncGroup(item.TargetReference, SyncReferenceGroup.None);
         }
         public void ValidateQueueDecision(NoteCandidate candidate, Action decision)
         {

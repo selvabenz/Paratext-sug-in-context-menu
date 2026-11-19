@@ -49,6 +49,9 @@ namespace NoteSuggestionsTests
         public SyncReferenceGroup EditorSyncGroup = SyncReferenceGroup.None;
         public readonly List<IVerseRef> NavigationReferences = new List<IVerseRef>();
         public int SyncCalls;
+        // Opt-in editor model: the project window follows host navigation and its own scroll group.
+        public bool TrackWindow, ThrowNavigation;
+        public IVerseRef WindowReference;
         public List<IBookInfo> AvailableBooks = new List<IBookInfo> { Book(1, "GEN") };
         public static IBookInfo Book(int number, string code)
         { return Stub<IBookInfo>.Create((m, a) => m.Name == "get_Number" ? (object)number : (object)code); }
@@ -143,7 +146,7 @@ namespace NoteSuggestionsTests
                 }
             });
             State = Stub<IParatextChildState>.Create((m, a) => {
-                switch(m.Name) { case "get_Project": return Project; case "get_VerseRef": return MakeRef(1, ActiveVerse); case "get_SyncReferenceGroup": return EditorSyncGroup; case "get_Selections": return Selections; default: throw new NotSupportedException(m.Name); }
+                switch(m.Name) { case "get_Project": return Project; case "get_VerseRef": return TrackWindow && WindowReference != null ? WindowReference : MakeRef(1, ActiveVerse); case "get_SyncReferenceGroup": return EditorSyncGroup; case "get_Selections": return Selections; default: throw new NotSupportedException(m.Name); }
             });
             Host = Stub<IPluginHost>.Create((m, a) => {
                 switch(m.Name) {
@@ -151,8 +154,8 @@ namespace NoteSuggestionsTests
                     case "get_ActiveWindowState": return State;
                     case "get_AllOpenWindows": return new[] { State };
                     case "get_ApplicationVersion": return new Version(9,5,110,1);
-                    case "OpenTextWindowFor": Navigations++; LastNavigationProject = (IReadOnlyProject)a[0]; LastNavigationReference = (IVerseRef)a[2]; NavigationReferences.Add(LastNavigationReference); return null;
-                    case "SetReferenceForSyncGroup": SyncCalls++; LastSyncReference = (IVerseRef)a[0]; LastSyncGroup = (SyncReferenceGroup)a[1]; return null;
+                    case "OpenTextWindowFor": if (ThrowNavigation) throw new InvalidOperationException("Injected navigation failure"); if (TrackWindow) WindowReference = (IVerseRef)a[2]; Navigations++; LastNavigationProject = (IReadOnlyProject)a[0]; LastNavigationReference = (IVerseRef)a[2]; NavigationReferences.Add(LastNavigationReference); return null;
+                    case "SetReferenceForSyncGroup": if (TrackWindow && (SyncReferenceGroup)a[1] == EditorSyncGroup) WindowReference = (IVerseRef)a[0]; SyncCalls++; LastSyncReference = (IVerseRef)a[0]; LastSyncGroup = (SyncReferenceGroup)a[1]; return null;
                     default: throw new NotSupportedException("host."+m.Name);
                 }
             });

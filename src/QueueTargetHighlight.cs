@@ -16,24 +16,66 @@ namespace ParatextNoteSuggestions
         sealed class Target
         {
             public int Book, Chapter, Verse;
-            public string Text, Before, After;
+            public string Text, Before, After, Suggested;
+            public ContentRegion Region;
             public NoteCandidate Item;
+            public bool Rendered, Matched;
         }
         Target target;
+        bool requested;
         double scale = 1;
         public Action<NoteCandidate, Point> ContextMenuRequested { get; set; }
         public QueueTargetHighlight(IProject project) { this.project = project; }
         public event EventHandler AnnotationsChanged;
         public bool MaintainSelectionsOnWordBoundaries { get { return false; } }
-        public void SetTarget(NoteCandidate item)
+        // The host re-renders every editor of the project for each AnnotationsChanged, and a
+        // re-render that lands after a navigation request competes with its scrolling. Raise
+        // the event only for a real change. notify: false leaves the new target to the next
+        // render the host performs anyway; Refresh covers the case where none follows.
+        public void SetTarget(NoteCandidate item, bool notify = true)
         {
-            target = item == null || item.Unreadable || item.CrossChapter || item.FirstVerse != item.LastVerse ||
+            var next = item == null || item.Unreadable || item.CrossChapter || item.FirstVerse != item.LastVerse ||
                 item.Book != item.EndBook || String.IsNullOrWhiteSpace(item.Proposal.Original) ? null :
                 new Target { Book = item.Book, Chapter = item.Chapter, Verse = item.FirstVerse, Text = item.Proposal.Original,
                     Before = item.Proposal.Original == item.AnchorText ? item.Before : "",
-                    After = item.Proposal.Original == item.AnchorText ? item.After : "", Item = item };
+                    After = item.Proposal.Original == item.AnchorText ? item.After : "",
+                    Suggested = item.Proposal.Suggested, Region = item.Proposal.Region, Item = item };
+            var old = target;
+            if (old == null && next == null) return;
+            if (old != null && next != null && old.Book == next.Book && old.Chapter == next.Chapter && old.Verse == next.Verse &&
+                old.Region == next.Region && old.Text == next.Text && old.Before == next.Before && old.After == next.After && old.Suggested == next.Suggested)
+            { old.Item = item; return; } // A reloaded copy of the same proposal keeps its rendered annotation and clicks.
+            target = next;
+            if (notify) Refresh();
+        }
+        public void Refresh()
+        {
+            // Paratext asks for annotations only while this layer is ticked in its menu, and
+            // re-renders by itself when it is ticked. Until then a change has nothing to redraw.
             var changed = AnnotationsChanged;
-            if (changed != null) changed(this, EventArgs.Empty);
+            if (requested && changed != null) changed(this, EventArgs.Empty);
+        }
+        // True while the host has not asked for the target's verse since the target was set.
+        public bool Pending { get { var pinned = target; return pinned != null && !pinned.Rendered; } }
+        public string Status
+        {
+            get
+            {
+                var pinned = target;
+                return pinned == null ? "No text highlight for this proposal (it spans verses or has no exact Original)." :
+                    pinned.Matched ? "Original highlighted in the verse." :
+                    pinned.Rendered ? "Original not found exactly once in the displayed verse; no text highlight." :
+                    "Original not highlighted: check that \"Highlight queued note target\" is ticked in the project window's View menu.";
+            }
+        }
+        // A section heading is displayed with the verse before it and a book introduction
+        // before the first verse, while their notes are anchored on the verse that follows.
+        static bool ShownIn(Target pinned, IVerseRef displayed)
+        {
+            if (displayed.BookNum != pinned.Book) return false;
+            if (pinned.Region == ContentRegion.Introduction && displayed.VerseNum == 0 && displayed.ChapterNum <= 1) return true;
+            return displayed.ChapterNum == pinned.Chapter && (displayed.VerseNum == pinned.Verse ||
+                (pinned.Region == ContentRegion.Heading && displayed.VerseNum == pinned.Verse - 1));
         }
         public IReadOnlyList<AnnotationStyle> GetStyleInfo(double zoom)
         {
@@ -44,23 +86,30 @@ namespace ParatextNoteSuggestions
         {
             var pinned = target;
             var empty = new IPluginAnnotation[0];
-            if (pinned == null || verseRef == null || verseRef.BookNum != pinned.Book ||
-                verseRef.ChapterNum != pinned.Chapter || verseRef.VerseNum != pinned.Verse || String.IsNullOrEmpty(usfm)) return empty;
+            requested = true;
+            if (pinned == null || verseRef == null || !ShownIn(pinned, verseRef)) return empty;
+            pinned.Rendered = true;
+            if (String.IsNullOrEmpty(usfm)) return empty;
             try
             {
                 var matches = project.FindMatchingScriptureSelections(verseRef, pinned.Text, usfm, false, false);
                 if (matches == null) return empty;
                 var exact = matches.Where(s => s.SelectedText == pinned.Text &&
-                    SameVerse(s.VerseRefStart, pinned) && SameVerse(s.VerseRefEnd, pinned) &&
-                    (String.IsNullOrEmpty(pinned.Before) || (s.BeforeContext ?? "").EndsWith(pinned.Before, StringComparison.Ordinal)) &&
-                    (String.IsNullOrEmpty(pinned.After) || (s.AfterContext ?? "").StartsWith(pinned.After, StringComparison.Ordinal))).ToList();
-                return exact.Count == 1 ? new IPluginAnnotation[] { new Highlight(this, pinned, exact[0], InlineLabel(pinned.Item.Proposal.Suggested, scale)) } : empty;
+                    SameVerse(s.VerseRefStart, verseRef) && SameVerse(s.VerseRefEnd, verseRef)).ToList();
+                // As in ExactEditor.Locate: a single occurrence needs no context, and a stale
+                // anchor context must not hide it. Context only chooses between repeats.
+                if (exact.Count > 1 && (!String.IsNullOrEmpty(pinned.Before) || !String.IsNullOrEmpty(pinned.After)))
+                    exact = exact.Where(s => (String.IsNullOrEmpty(pinned.Before) || (s.BeforeContext ?? "").EndsWith(pinned.Before, StringComparison.Ordinal)) &&
+                        (String.IsNullOrEmpty(pinned.After) || (s.AfterContext ?? "").StartsWith(pinned.After, StringComparison.Ordinal))).ToList();
+                if (exact.Count != 1) return empty;
+                pinned.Matched = true;
+                return new IPluginAnnotation[] { new Highlight(this, pinned, exact[0], InlineLabel(pinned.Suggested, scale)) };
             }
             // Rendering is optional. A host selection failure must not interrupt a saved decision.
             catch (Exception) { return empty; }
         }
-        static bool SameVerse(IVerseRef reference, Target pinned)
-        { return reference != null && reference.BookNum == pinned.Book && reference.ChapterNum == pinned.Chapter && reference.VerseNum == pinned.Verse; }
+        static bool SameVerse(IVerseRef reference, IVerseRef displayed)
+        { return reference != null && reference.BookNum == displayed.BookNum && reference.ChapterNum == displayed.ChapterNum && reference.VerseNum == displayed.VerseNum; }
         // The host supports an image before the annotated text, rather than arbitrary editor text.
         // Render a compact suggestion label there; the tooltip/menu retains the full wording.
         static string InlineLabel(string suggested, double scale)

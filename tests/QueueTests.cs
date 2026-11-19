@@ -31,6 +31,9 @@ namespace NoteSuggestionsTests
             var q = new QueueForm(f.Service(), root, project);
             while (Field<bool>(q, "indexing")) Call(q, "IndexBook"); return q;
         }
+        static string Phase(QueueForm q) { return q.GetType().GetField("navigationPhase", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(q).ToString(); }
+        // Runs the navigation timer's work to completion without waiting for real ticks.
+        static void Settle(QueueForm q) { for (int i = 0; i < 60 && Phase(q) != "Idle"; i++) Call(q, "CheckNavigation"); Check(Phase(q) == "Idle"); }
         static Fixture Sandhi()
         { var f = new Fixture(); f.NoteText = Fixture.Qa("Sandhi / word-joining", "\u0baa\u0bb4\u0bc8\u0baf", "\u0baa\u0bc1\u0ba4\u0bbf\u0baf", "No"); return f; }
         static Fixture Typo()
@@ -75,17 +78,96 @@ namespace NoteSuggestionsTests
                     }
                 }
             });
-            test("same-verse reveal changes the selected sync group before restoring its pinned target", delegate {
+            test("same-verse reveal hops only the project window before restoring the pinned target in the selected group", delegate {
                 var f = new Fixture(); f.EditorSyncGroup = Paratext.PluginInterfaces.SyncReferenceGroup.B;
                 var service = f.Service(); var item = service.ReadQueueBook(1).Single();
-                service.BeginReturnToPassage(item);
-                Check(f.SyncCalls == 1 && f.LastSyncGroup == service.NavigationGroup && f.LastSyncReference.VerseNum != item.FirstVerse);
+                Check(service.BeginReturnToPassage(item));
+                Check(f.SyncCalls == 0 && f.Navigations == 1 && f.LastNavigationReference.VerseNum != item.FirstVerse);
                 service.Navigate(item);
-                Check(f.SyncCalls == 2 && f.LastSyncReference == item.TargetReference && f.Writes == 0);
+                Check(f.SyncCalls == 1 && f.LastSyncGroup == service.NavigationGroup && f.LastSyncReference == item.TargetReference && f.Writes == 0);
+            });
+            test("navigation repairs a late echo of the neighbouring verse in the editor's own group without activating a window", delegate {
+                var f = new Fixture { TrackWindow = true, EditorSyncGroup = Paratext.PluginInterfaces.SyncReferenceGroup.A };
+                using (var q = Queue(f, Root())) {
+                    // The queue's saved group differs from the editor's group.
+                    Field<ComboBox>(q, "syncGroup").SelectedItem = Paratext.PluginInterfaces.SyncReferenceGroup.B;
+                    var item = Field<NoteCandidate>(q, "current");
+                    Check(f.Navigations == 0 && Phase(q) == "Start");
+                    Call(q, "CheckNavigation"); Check(Phase(q) == "Reveal" && f.WindowReference.VerseNum != item.FirstVerse);
+                    Call(q, "CheckNavigation"); Check(Phase(q) == "Settle" && f.WindowReference == item.TargetReference && f.Navigations == 2);
+                    Call(q, "CheckNavigation"); Check(Phase(q) == "Settle");
+                    f.WindowReference = Fixture.MakeRef(1, 2); int sync = f.SyncCalls;
+                    Call(q, "CheckNavigation");
+                    Check(f.WindowReference == item.TargetReference && f.SyncCalls > sync && f.Navigations == 2 && Phase(q) == "Settle");
+                    Settle(q);
+                    Check(Field<Label>(q, "navigationLabel").Text.StartsWith("Project window reference confirmed") && f.Navigations == 2);
+                    Check(f.Writes == 0 && f.Resolves == 0 && f.Replies.Count == 0); q.Close();
+                }
+            });
+            test("navigation keeps resending an unconfirmed reference, reopens an ungrouped editor at most twice, then stops", delegate {
+                var f = MultiBook(); using (var q = Queue(f, Root())) {
+                    Settle(q); int before = f.Navigations;
+                    Call(q, "Browse", 1);
+                    var item = Field<NoteCandidate>(q, "current"); Check(item.Book == 40);
+                    Call(q, "CheckNavigation"); Check(Phase(q) == "Settle" && f.Navigations == before + 1 && f.LastNavigationReference == item.TargetReference);
+                    Settle(q);
+                    Check(f.Navigations == before + 3 && f.NavigationReferences.Skip(before).All(r => r == item.TargetReference));
+                    Check(Field<Label>(q, "navigationLabel").Text.StartsWith("Navigation requested; window reference not confirmed"));
+                    Check(!Field<bool>(q, "paused") && f.Writes == 0); q.Close();
+                }
+            });
+            test("a failed navigation request is reported without pausing the review", delegate {
+                var f = new Fixture(); using (var q = Queue(f, Root())) {
+                    f.ThrowNavigation = true; Call(q, "CheckNavigation");
+                    Check(Phase(q) == "Idle" && Field<Label>(q, "navigationLabel").Text.Contains("failed") && !Field<bool>(q, "paused"));
+                    f.ThrowNavigation = false; Call(q, "NavigateCurrent"); Settle(q);
+                    Check(f.LastNavigationReference == Field<NoteCandidate>(q, "current").TargetReference && f.Writes == 0); q.Close();
+                }
+            });
+            test("the highlight re-renders once per target and waits for the editor's own load when the book changes", delegate {
+                var f = MultiBook(); var source = f.Plugin.HighlightFor(f.Project); int changes = 0; source.AnnotationsChanged += delegate { changes++; };
+                source.GetAnnotations(Fixture.MakeRef(1, 9), "layer ticked");
+                using (var q = Queue(f, Root())) {
+                    var first = Field<NoteCandidate>(q, "current");
+                    Check(changes == 1 && source.Pending);
+                    var mark = source.GetAnnotations(first.TargetReference, first.Proposal.Original).Single(); Check(!source.Pending);
+                    Settle(q); Check(changes == 1);
+                    // Return and a reload of the same proposal keep the rendered annotation usable.
+                    Call(q, "NavigateCurrent"); Settle(q); Call(q, "LoadCurrent"); Settle(q);
+                    int menus = 0; source.ContextMenuRequested = delegate(NoteCandidate clicked, System.Drawing.Point at) { if (Object.ReferenceEquals(clicked, Field<NoteCandidate>(q, "current"))) menus++; };
+                    Check(changes == 1 && mark.Click(Paratext.PluginInterfaces.MouseButton.Right, false, new System.Drawing.Point(1, 1)) && menus == 1);
+                    Call(q, "Browse", 1);
+                    var second = Field<NoteCandidate>(q, "current"); Check(second.Book == 40 && changes == 1 && source.Pending);
+                    Check(!mark.Click(Paratext.PluginInterfaces.MouseButton.Right, false, new System.Drawing.Point(1, 1)));
+                    Call(q, "CheckNavigation"); Call(q, "CheckNavigation"); Check(changes == 1);
+                    Call(q, "CheckNavigation"); Check(changes == 2);
+                    Settle(q); Check(changes == 2 && Field<Label>(q, "navigationLabel").Text.Contains("Highlight queued note target"));
+                    q.Close(); Check(changes == 3 && !source.Pending);
+                }
+            });
+            test("highlight ignores a stale anchor context for a single occurrence and follows headings and introductions", delegate {
+                var f = new Fixture(); var item = f.Service().ReadQueueBook(1).Single(); var source = f.Plugin.HighlightFor(f.Project);
+                item.Before = "stale "; item.After = " context"; source.SetTarget(item);
+                Check(source.Status.Contains("View menu")); int changes = 0; source.AnnotationsChanged += delegate { changes++; };
+                Check(source.GetAnnotations(item.TargetReference, "now " + item.Proposal.Original + " here").Count == 1 && source.Status.StartsWith("Original highlighted"));
+                source.SetTarget(null); source.SetTarget(item);
+                Check(source.GetAnnotations(item.TargetReference, "no match").Count == 0 && source.Status.Contains("not found exactly once"));
+                Check(source.GetAnnotations(Fixture.MakeRef(1, 2), item.Proposal.Original).Count == 0);
+                item.Proposal.Region = ContentRegion.Heading; source.SetTarget(item);
+                Check(source.GetAnnotations(Fixture.MakeRef(1, 2), item.Proposal.Original).Count == 1);
+                Check(source.GetAnnotations(Fixture.MakeRef(1, 4), item.Proposal.Original).Count == 0);
+                item.Proposal.Region = ContentRegion.Introduction; source.SetTarget(item);
+                Check(source.GetAnnotations(Fixture.MakeRef(1, 0), item.Proposal.Original).Count == 1);
+                Check(source.GetAnnotations(Fixture.MakeRef(2, 0), item.Proposal.Original).Count == 0);
+                Check(source.GetAnnotations(Fixture.MakeRef(1, 0, 40), item.Proposal.Original).Count == 0);
+                source.SetTarget(null); Check(source.Status.StartsWith("No text highlight"));
             });
             test("Scripture annotation highlights a unique literal Original only in the pinned verse", delegate {
                 var f = new Fixture(); var service = f.Service(); var item = service.ReadQueueBook(1).Single();
                 var source = f.Plugin.HighlightFor(f.Project); int changes = 0; source.AnnotationsChanged += delegate { changes++; };
+                // Until Paratext has asked for annotations the layer is off and nothing is redrawn.
+                source.SetTarget(item); source.SetTarget(null); Check(changes == 0);
+                source.GetAnnotations(Fixture.MakeRef(1, 9), "layer ticked");
                 service.Navigate(item);
                 var mark = source.GetAnnotations(item.TargetReference, "before " + item.Proposal.Original + " after").Single();
                 Check(mark.ScriptureSelection.SelectedText == item.Proposal.Original && changes == 1);
@@ -141,13 +223,13 @@ namespace NoteSuggestionsTests
                     Check(second != null && second.Book == 40 && second.StableId != first.StableId);
                     Check(source.GetAnnotations(first.TargetReference, first.Proposal.Original).Count == 0);
                     Check(source.GetAnnotations(second.TargetReference, second.Proposal.Original).Count == 1);
-                    Check(Field<bool>(q, "returnNavigationPending"));
-                    Call(q, "CheckNavigation"); Check(f.LastNavigationReference == second.TargetReference);
+                    // Another book is a real reference change: no neighbouring-verse hop.
+                    Call(q, "CheckNavigation"); Check(Phase(q) == "Settle" && f.LastNavigationReference == second.TargetReference);
                     Field<Button>(q, "previous").PerformClick();
                     Check(Field<NoteCandidate>(q, "current").StableId == first.StableId);
                     Check(source.GetAnnotations(second.TargetReference, second.Proposal.Original).Count == 0);
                     Check(source.GetAnnotations(first.TargetReference, first.Proposal.Original).Count == 1);
-                    Check(Field<bool>(q, "returnNavigationPending"));
+                    Call(q, "CheckNavigation"); Check(Phase(q) == "Reveal" && f.LastNavigationReference.VerseNum != first.FirstVerse);
                     Call(q, "CheckNavigation"); Check(f.LastNavigationReference == first.TargetReference);
                     Check(Field<TextBox>(q, "comment").Text == "Keep this draft while browsing");
                     Check(f.Writes == 0 && f.Resolves == 0 && f.Replies.Count == 0); q.Close();
@@ -166,11 +248,12 @@ namespace NoteSuggestionsTests
             test("automatic queue loads force the same two-step passage reveal as Return", delegate {
                 var f = new Fixture(); using (var q = Queue(f, Root())) {
                     var item = Field<NoteCandidate>(q, "current");
-                    Check(Field<bool>(q, "returnNavigationPending") && f.LastNavigationReference.VerseNum != item.FirstVerse);
                     Call(q, "CheckNavigation");
-                    Check(!Field<bool>(q, "returnNavigationPending") && f.LastNavigationReference == item.TargetReference);
-                    Call(q, "LoadCurrent");
-                    Check(Field<bool>(q, "returnNavigationPending") && f.LastNavigationReference.VerseNum != item.FirstVerse);
+                    Check(Phase(q) == "Reveal" && f.LastNavigationReference.VerseNum != item.FirstVerse);
+                    Call(q, "CheckNavigation");
+                    Check(Phase(q) == "Settle" && f.LastNavigationReference == item.TargetReference);
+                    Call(q, "LoadCurrent"); Call(q, "CheckNavigation");
+                    Check(Phase(q) == "Reveal" && f.LastNavigationReference.VerseNum != item.FirstVerse);
                     Call(q, "CheckNavigation"); Check(f.LastNavigationReference == item.TargetReference);
                     Check(f.Writes == 0 && f.Resolves == 0); q.Close();
                 }
@@ -787,11 +870,10 @@ namespace NoteSuggestionsTests
                     q.Show(); Application.DoEvents();
                     var target = Field<NoteCandidate>(q, "current");
                     f.ActiveVerse = target.FirstVerse;
-                    Field<Button>(q, "back").PerformClick();
-                    Check(Field<bool>(q, "returnNavigationPending"));
-                    Check(f.LastNavigationReference.VerseNum != target.FirstVerse);
+                    Field<Button>(q, "back").PerformClick(); Call(q, "CheckNavigation");
+                    Check(Phase(q) == "Reveal" && f.LastNavigationReference.VerseNum != target.FirstVerse);
                     Call(q, "CheckNavigation");
-                    Check(!Field<bool>(q, "returnNavigationPending") && f.LastNavigationReference == target.TargetReference);
+                    Check(Phase(q) == "Settle" && f.LastNavigationReference == target.TargetReference);
                     Check(f.LastNavigationProject.ID == f.ProjectId && f.Writes == 0 && f.Resolves == 0);
                     q.Close();
                 }
@@ -927,7 +1009,7 @@ namespace NoteSuggestionsTests
                 Check(refused && f.Writes == 0);
             });
             test("queue indexing and reference browsing never write", delegate {
-                var f = new Fixture(); using (var q = Queue(f, Root())) { Check(f.Navigations == 1 && f.Writes == 0); f.ActiveVerse = 8; Check(f.Writes == 0); q.Close(); }
+                var f = new Fixture(); using (var q = Queue(f, Root())) { Call(q, "CheckNavigation"); Check(f.Navigations == 1 && f.Writes == 0); f.ActiveVerse = 8; Check(f.Writes == 0); q.Close(); }
             });
             test("decision advances to next note and later retains its draft", delegate {
                 var f = new Fixture(); var anchor = f.Anchor; bool secondResolved = false;
@@ -944,7 +1026,8 @@ namespace NoteSuggestionsTests
                 using (var q = Queue(f, root))
                 {
                     string first = Field<NoteCandidate>(q, "current").StableId;
-                    Field<TextBox>(q, "comment").Text = "Investigating"; Call(q, "SaveDraft"); Call(q, "Next");
+                    Call(q, "CheckNavigation");
+                    Field<TextBox>(q, "comment").Text = "Investigating"; Call(q, "SaveDraft"); Call(q, "Next"); Call(q, "CheckNavigation");
                     Check(Field<NoteCandidate>(q, "current").StableId != first && f.Navigations == 2 && f.Writes == 0);
                     Field<TextBox>(q, "comment").Text = "Reject second"; Call(q, "Decide", "Rejected"); q.Close();
                 }
