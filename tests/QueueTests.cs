@@ -161,7 +161,9 @@ namespace NoteSuggestionsTests
                         }
                         if (form != q) form.Close();
                     }
-                    Check(ParatextTheme.ImageOf("prev_left") != null && ParatextTheme.ColorOf("text_normal").ToArgb() != 0);
+                    // Icons come from an installed Paratext; a build machine without one uses text-only commands.
+                    bool themeInstalled = File.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), @"Paratext 9\Themes\Default\Images\prev_left.png"));
+                    Check((ParatextTheme.ImageOf("prev_left") != null) == themeInstalled && ParatextTheme.ColorOf("text_normal").ToArgb() != 0);
                     Check(f.Writes == 0 && f.Resolves == 0); q.Close();
                 }
             });

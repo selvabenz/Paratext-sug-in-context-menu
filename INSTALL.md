@@ -1,13 +1,23 @@
 ﻿# Install the preview
 
-Version: 0.3.0-preview.1. Windows, Paratext 9.5.110.1, .NET Framework 4.8. The compiled plugin references the installed 2.0.100.0 interface assemblies; those proprietary host assemblies are not redistributed.
+Version: 0.4.0-preview and later previews. Windows, Paratext 9.5 (tested with 9.5.110.1), .NET Framework 4.8. The plugin references the Paratext 9.5 plugin interfaces (2.0.100.0), which Paratext provides; they are not included in the download.
 
 This preview has automated and real-host validation for loading, exact body/footnote writes, ambiguity refusal, and revert in a disposable project. Export and Send/Receive acceptance remain pending. See VALIDATION.md for the exact boundary.
 
-## Installation
+## Installation with the Windows installer
+
+1. Save your work and close Paratext.
+2. Download `ParatextNoteSuggestions-<version>-Setup.exe` from this repository's [GitHub releases](https://github.com/selvabenz/Paratext-sug-in-context-menu/releases). Optionally compare `Get-FileHash -Algorithm SHA256` with its `.sha256` file.
+3. Run it and approve the administrator prompt. The installer is not code-signed, so Windows SmartScreen may ask you to confirm (**More info > Run anyway**).
+4. The installer finds Paratext from its registry entry, requires Paratext 9.5 (and asks before installing on a version other than 9.5.110.1), waits until Paratext is closed, installs the plugin into `Paratext 9\Plugins\ParatextNoteSuggestions`, and refreshes Paratext's plugin list. Installing a newer version replaces the old one.
+5. To remove the plugin, use **Settings > Apps > Installed apps > Note Suggestions for Paratext** with Paratext closed. Review progress, reports and project notes are kept.
+
+For unattended installs, run the installer with `/VERYSILENT /SUPPRESSMSGBOXES`.
+
+## Installation from the ZIP (scripted)
 
 1. Download the release ZIP and its `.sha256` sidecar from this repository's GitHub release.
-2. Check the ZIP using `Get-FileHash -Algorithm SHA256 .\ParatextNoteSuggestions-0.3.0-preview.1.zip` against the sidecar. Extract the ZIP to a folder.
+2. Check the ZIP using `Get-FileHash -Algorithm SHA256 .\ParatextNoteSuggestions-<version>.zip` against the sidecar. Extract the ZIP to a folder.
 3. Close Paratext yourself after saving your work. The installer refuses to run while Paratext is open.
 4. In the extracted folder, run `powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1`. Approve the Windows administrator prompt if requested. This is a process-local execution-policy choice, not a persistent policy change. The script checks the plugin hash and host version, elevates if needed, installs into `Paratext 9\Plugins\ParatextNoteSuggestions`, and runs Paratext's official plugin-cache updater.
 5. Start Paratext and open a disposable test project. Check that **Note suggestions…** appears in the Scripture right-click menu and the project's Tools menu.

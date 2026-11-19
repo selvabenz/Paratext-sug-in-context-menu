@@ -1,0 +1,104 @@
+# Builds, tests and packages the plugin on Windows. Every push to main that changes the plugin
+# publishes a GitHub release with the Windows installer (Setup.exe) and the ZIP (install.ps1).
+# The version is MAJOR.MINOR from VERSION plus the number of commits since VERSION changed.
+name: Build and release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'scripts/**'
+      - 'packaging/**'
+      - 'installer/**'
+      - 'VERSION'
+      - '.github/workflows/release.yml'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'scripts/**'
+      - 'packaging/**'
+      - 'installer/**'
+      - 'VERSION'
+      - '.github/workflows/release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the patch number counts commits
+
+      - name: Fetch Paratext plugin interfaces (pinned NuGet packages)
+        shell: powershell
+        run: ./scripts/fetch-interfaces.ps1
+
+      - name: Install Inno Setup
+        shell: powershell
+        run: |
+          if (!(Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup --no-progress -y; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } }
+
+      - name: Build, test and package
+        shell: powershell
+        run: ./scripts/package.ps1 -ParatextDir artifacts/paratext-interfaces -RequireInstaller
+
+      - name: Read version
+        id: version
+        shell: pwsh
+        run: |
+          $v = ./scripts/version.ps1
+          "version=$($v.Version)" >> $env:GITHUB_OUTPUT
+          "tag=$($v.Tag)" >> $env:GITHUB_OUTPUT
+          "prerelease=$($v.Prerelease.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ParatextNoteSuggestions-${{ steps.version.outputs.version }}
+          path: artifacts/release/${{ steps.version.outputs.version }}/*
+          if-no-files-found: error
+
+      - name: Publish GitHub release
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+          PRERELEASE: ${{ steps.version.outputs.prerelease }}
+        run: |
+          gh release view $env:TAG *> $null
+          if ($LASTEXITCODE -eq 0) { Write-Output "Release $env:TAG already exists; nothing to publish."; exit 0 }
+          $previous = git describe --tags --abbrev=0 HEAD 2>$null
+          $range = if ($previous) { "$previous..HEAD" } else { 'HEAD' }
+          $changes = git log --no-merges --format='- %s (%h)' $range
+          $dist = "artifacts/release/$env:VERSION"
+          $setup = "ParatextNoteSuggestions-$env:VERSION-Setup.exe"
+          $notes = @(
+            "Note Suggestions plugin for Paratext 9.5 (tested with 9.5.110.1, Windows).",
+            "",
+            "## Install",
+            "1. Save your work and close Paratext.",
+            "2. Download **$setup** and run it. Approve the administrator prompt. The installer finds Paratext, installs the plugin and refreshes Paratext's plugin list.",
+            "3. Start Paratext. Open **Review note queue…** or **Note suggestions…** from the Scripture right-click or Tools menu.",
+            "",
+            "To remove it, use **Settings > Apps > Installed apps > Note Suggestions for Paratext**. The ZIP contains the same plugin with ``install.ps1``/``uninstall.ps1`` for scripted installs; see INSTALL.md. Each file has a ``.sha256`` checksum. The installer is not code-signed, so Windows SmartScreen may ask for confirmation.",
+            "",
+            "## Changes since $(if ($previous) { $previous } else { 'the first commit' })",
+            $changes
+          )
+          $notes -join "`n" | Set-Content -Path release-notes.md -Encoding utf8
+          $arguments = @('release', 'create', $env:TAG, '--title', "Note Suggestions $env:VERSION", '--notes-file', 'release-notes.md', '--target', $env:GITHUB_SHA)
+          if ($env:PRERELEASE -eq 'true') { $arguments += '--prerelease' } else { $arguments += '--latest' }
+          gh @arguments (Get-ChildItem $dist -File | ForEach-Object FullName)

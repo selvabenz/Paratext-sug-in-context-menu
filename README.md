@@ -6,9 +6,9 @@ Target: **Paratext 9.5.110.1 on Windows**.
 
 ## Status
 
-**0.3.0-preview.1** is a compiled Windows plugin built against Paratext 9.5.110.1 interfaces (2.0.100.0), targeting .NET Framework 4.8. It includes 124 passing checks and real-host tests for loading, exact Scripture/footnote writes, ambiguity refusal, and revert in a disposable project. Export/Send-Receive acceptance remains pending; this is a prerelease.
+**0.4.0-preview** is a compiled Windows plugin built against the Paratext 9.5 plugin interfaces (2.0.100.0), targeting .NET Framework 4.8 and tested with Paratext 9.5.110.1. 228 synthetic checks pass, with real-host tests for loading, exact Scripture/footnote writes, ambiguity refusal, and revert in a disposable project. Export/Send-Receive acceptance remains pending; releases are marked as previews.
 
-Get the package from [GitHub Releases](https://github.com/selvabenz/Paratext-sug-in-context-menu/releases). Read [INSTALL.md](INSTALL.md), [VALIDATION.md](VALIDATION.md), and the [developer handoff](DEVELOPER_HANDOFF.md) before using it.
+Get **ParatextNoteSuggestions-&lt;version&gt;-Setup.exe** from [GitHub Releases](https://github.com/selvabenz/Paratext-sug-in-context-menu/releases), close Paratext and run it. Read [INSTALL.md](INSTALL.md), [VALIDATION.md](VALIDATION.md), and the [developer handoff](DEVELOPER_HANDOFF.md) before using it.
 
 The user's screenshot shows QA project notes with `Original:`, `Suggested:`, and `Reason:` fields. The menu should surface the existing `Suggested:` correction for the relevant passage. Automatically generating suggestions is outside the initial scope.
 
@@ -106,7 +106,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package.ps1
 ```
 
-Requires Windows with .NET Framework 4.8 and a local Paratext 9.5.110.1 installation. The host interfaces are referenced locally and are not distributed. Build output and historical mockups are ignored by Git.
+Requires Windows with .NET Framework 4.8. The build uses the plugin interfaces of a local Paratext 9.5 installation; without one, run `scripts/fetch-interfaces.ps1` and pass `-ParatextDir artifacts/paratext-interfaces`. That script downloads the interfaces the Paratext team publishes on nuget.org, pinned to the hashes of the installed 2.0.100.0 assemblies. Packaging builds the Windows installer when Inno Setup 6 is installed. Build output is ignored by Git.
+
+### Versions and automatic releases
+
+`VERSION` holds the major and minor version and the release label (`0.4-preview`). The patch number is the number of commits since `VERSION` last changed, so the build stamped into the plugin is reproducible from the commit. Change `VERSION` to start a new series; remove the label to publish stable releases.
+
+Every push to `main` that changes the plugin, its tests, scripts, packaging or installer runs [the release workflow](.github/workflows/release.yml) on Windows: it fetches the pinned interfaces, builds, runs all checks, builds the installer and ZIP, and publishes a GitHub release `v<version>` with `.sha256` checksums and the commits since the previous release. Pull requests run the same build and tests without publishing. Documentation-only pushes do not release.
 
 See [PLAN.md](PLAN.md) for the interaction design, feasibility checks, milestones, and acceptance criteria.
 

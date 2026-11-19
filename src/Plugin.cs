@@ -10,8 +10,9 @@ using Paratext.PluginInterfaces;
 [assembly: AssemblyTitle("Paratext Note Suggestions")]
 [assembly: AssemblyDescription("Category-aware QA note corrections for Paratext 9.5")]
 [assembly: AssemblyCompany("selvabenz")]
+// Kept constant so Paratext's saved layouts and plugin data stay attached across updates. The file
+// and product versions are generated from VERSION by scripts/build.ps1 (BuildInfo).
 [assembly: AssemblyVersion("0.1.0.0")]
-[assembly: AssemblyFileVersion("0.3.0.1")]
 [assembly: TargetFramework(".NETFramework,Version=v4.8", FrameworkDisplayName = ".NET Framework 4.8")]
 
 namespace ParatextNoteSuggestions
@@ -33,8 +34,8 @@ namespace ParatextNoteSuggestions
         static readonly Dictionary<string, QueueForm> Queues = new Dictionary<string, QueueForm>();
         public string Name { get { return "Note Suggestions"; } }
         public string Publisher { get { return "selvabenz"; } }
-        public Version Version { get { return new Version(0, 3, 0, 1); } }
-        public string VersionString { get { return "0.3.0-preview.1"; } }
+        public Version Version { get { return new Version(BuildInfo.Major, BuildInfo.Minor, BuildInfo.Patch, 0); } }
+        public string VersionString { get { return BuildInfo.Version; } }
         public string GetDescription(string locale) { return "Apply exact QA note corrections to project Scripture, with category-aware review."; }
         public IDataFileMerger GetMerger(IPluginHost host, string identifier) { return null; }
         public IEnumerable<WindowPluginMenuEntry> PluginMenuEntries

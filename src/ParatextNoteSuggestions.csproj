@@ -32,10 +32,13 @@
     <Compile Include="QueueForm.cs" />
     <Compile Include="QueueControl.cs" />
     <Compile Include="ParatextTheme.cs" />
+    <Compile Include="..\artifacts\obj\VersionInfo.cs" />
     <Compile Include="QueueScope.cs" />
     <Compile Include="BulkResolveDialog.cs" />
     <Compile Include="ReviewReports.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+  <!-- The version comes from VERSION and the commit history; see scripts/version.ps1. -->
+  <Target Name="VersionInfo" BeforeTargets="CoreCompile"><Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\scripts\build.ps1&quot; -VersionInfoOnly" /></Target>
   <Target Name="PluginExtension" AfterTargets="Build"><Copy SourceFiles="$(TargetPath)" DestinationFiles="$(TargetDir)$(TargetName).ptxplg" /></Target>
 </Project>

@@ -1,4 +1,12 @@
-﻿# Installed development update - 13 November 2026
+﻿# 0.4.0-preview - 19 November 2026
+
+- **Windows installer and automatic releases.** Each release now includes `ParatextNoteSuggestions-<version>-Setup.exe`, which finds Paratext, waits for it to close, installs the plugin, refreshes the plugin list and adds an entry to Windows' installed apps. Every push to `main` that changes the plugin builds, tests and publishes a release on GitHub. Versions come from `VERSION` plus the commit count; the plugin reports the same version to Paratext.
+- **Review queue navigation fix.** Previous, Next, Return to passage, Apply + next, Reject + next and Completed manually again bring the editor to the queued verse and its highlighted target. The queue no longer trusts a single navigation request: it keeps checking the project editor and sends the reference again if Paratext moves it. See [the navigation fix report](NAVIGATION_FIX_REPORT.md).
+- **Docked queue window.** **Review note queue…** opens as a Paratext window that can be docked beside the editor, tabbed, floated or auto-hidden, and is restored with Paratext's layout.
+- **Paratext look and responsive layout.** All plugin windows use Paratext's theme colours, icons, toolbar and status bar, standard command buttons and dialog button placement, and reflow or scroll in narrow windows instead of clipping.
+- 228 synthetic checks pass. Navigation and docking were confirmed by the user in Paratext 9.5.110.1; the theme in Bright/custom themes and at 150/200% scaling still needs live acceptance.
+
+# Installed development update - 13 November 2026
 
 - Show the current queue suggestion as a green inline label before its exact yellow Original highlight. Right-click the label or text to Apply, Reject or Ignore for now.
 - Apply/Reject use the existing verified write, attributed reply, thread resolution and recovery flow. Ignore preserves the draft and leaves the note unresolved. Stale clicks cannot decide another proposal.
