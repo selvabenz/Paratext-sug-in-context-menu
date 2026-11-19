@@ -59,6 +59,8 @@ Use separate validated operations for marker changes, note edits/moves, verse-br
 
 The notes include marker reclassification, moving a footnote call, and exchanging verse contents while relocating a cross-reference. These cannot be represented safely as a generic word replacement. Unsupported structural operations remain review-only with the limitation stated; they are not marked applied.
 
+Fast review adds one more dedicated transform: inserting a single variant footnote (`\f + \fr C:V \ft …\f*`), mainly for Source comparison and Textual-basis review, from reviewer-chosen templates. It is previewed as exact chapter USFM, validated by the host's reparse and limited to adding that one note. Prepared wording from a wording sheet is an explicit reviewer-approved literal correction in the sense above. It is labelled as not from the note and applied only by the reviewer's key press. The plugin never derives replacement text from a Suggested field's alternatives or instructions.
+
 ### Instructions, no-change notes, and legacy comments
 
 Suggestions such as “no change proposed,” requests to consider a source reading, or prose describing a verse exchange are not literal replacement strings. Show **Review note** or a dedicated structured edit form. No-change notes have no Apply action.

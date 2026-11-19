@@ -59,6 +59,12 @@ The **Log** tab shows recovery notices, the number of unreadable discussions and
 
 The selected **Bulk resolve... > Preview Scripture edits...** workflow also supports exact corrections in introductions, headings, footnotes and cross-references. Each preview row shows the target region, which is preserved through application and audit history. Explicit opening locations in the note's Reason field, such as “In the footnote, ...”, are recognized when Topic/Location does not name a region. Introduction corrections read and lock the whole book while editing only introduction text. Tamil text containing digits, such as dates, is supported. Structural changes, ambiguous matches and edits spanning formatting tokens still require individual review. The dedicated Sandhi/confirmed-typo bulk tools retain their body-text restriction.
 
+## Fast review (development build)
+
+The queue's **Fast review** tab lets you review with one key per note: F5 apply the change shown, F6 reject, F7 fixed by hand in Paratext, F8 add a footnote from a template, F9 skip, F11 undo the last decision. Comments are filled in automatically by category and outcome. The apply key writes exactly the before/after on screen and keeps every check of the normal Apply. A refusal writes nothing and leaves the note in place.
+
+For notes without ready-to-paste Tamil you choose: stop for a manual edit, leave them for a later round, or use an imported wording sheet, labelled as not from the note. Reference texts (ESV, Tamil BSI) are shown when Paratext allows plugins to read them; otherwise they open as Paratext windows that follow the scroll group. Not yet tested inside Paratext. See [FAST_REVIEW.md](FAST_REVIEW.md).
+
 ## Scripture target highlighting (development build)
 
 The current queued suggestion now also appears as a green inline label before its yellow-highlighted Original text. Right-click the label or highlighted text for **Apply suggestion...**, **Reject suggestion...**, or **Ignore for now (leave unresolved)**. Apply and Reject open a compact source-and-comment confirmation at the editor; Apply also requires acknowledgement of the exact correction. They use the queue's existing verified Scripture writes, attributed replies, resolution and Recovery records. Ignore saves the current draft and advances without editing Scripture, replying or resolving the note; it can be reviewed again later.

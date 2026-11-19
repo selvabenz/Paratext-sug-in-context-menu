@@ -134,6 +134,9 @@ namespace NoteSuggestionsTests
                     windows.Add(internalForm("BulkResolveDialog", new object[] { candidates, null }));
                     windows.Add(internalForm("SkippedReviewDialog", new object[] { new System.Collections.Generic.List<ReviewRecord>(), (Action<string>)delegate { } }));
                     windows.Add(new SuggestionPicker(candidates, "GEN 1:3"));
+                    windows.Add(internalForm("FastReviewDialog", new object[] { new FastSettings(), new System.Collections.Generic.List<string> { "ESVUS11", "TAOVBSI" } }));
+                    windows.Add(internalForm("FootnoteComposer", new object[] { candidates[0], FootnotePresets.Defaults.ToList(), (Func<string, bool, FootnotePlan>)((text, after) => { throw new InvalidOperationException("Synthetic preview refusal"); }),
+                        (Func<string>)(() => ""), (Func<string>)(() => ""), (Action<System.Collections.Generic.IList<string>>)(t => { }), ParatextTheme.Font }));
                     windows.Add(new ReviewForm(f.Service(), f.Service().ReadCandidates()));
                     Action<bool, string> expect = (ok, what) => { if (!ok) throw new Exception("Theme check failed: " + what); };
                     foreach (var form in windows) {

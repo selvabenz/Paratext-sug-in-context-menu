@@ -36,6 +36,9 @@
     <Compile Include="QueueScope.cs" />
     <Compile Include="BulkResolveDialog.cs" />
     <Compile Include="ReviewReports.cs" />
+    <Compile Include="FastReview.cs" />
+    <Compile Include="FootnoteComposer.cs" />
+    <Compile Include="WordingSheet.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- The version comes from VERSION and the commit history; see scripts/version.ps1. -->

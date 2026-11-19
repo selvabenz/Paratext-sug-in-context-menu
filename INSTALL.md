@@ -57,6 +57,10 @@ Earlier completed decisions from preview.1 are preserved and are not bulk-resolv
 
 Scope is unresolved `[AI-QA ...]` source comments, including R2/P3 and all 16 semantic categories. Legacy/human notes and native tag filtering are outside this queue. Multiple structured proposals in a thread are separate items; any conflicting correction still requires explicit review. Resolving a source note outside the queue removes it from the next scan. New notes are discovered when you reopen the queue.
 
+## Fast review
+
+**Fast review…** on the queue toolbar turns on one-key review on its own tab (F5 apply, F6 reject, F7 fixed by hand, F8 footnote, F9 skip, F11 undo). Put the project editor in the queue's scroll group first. Run **Tools > Host probe** once in the disposable NSTest project before using it on a real book. See [FAST_REVIEW.md](FAST_REVIEW.md).
+
 ## Filters and bulk resolution
 
 Use **Filters...** to choose books, note status, an exact category or discussion-text search. Custom category names are accepted; searches such as `verse alignment` or `spacing` can find related discussions within broader categories. Filters and resume positions persist locally.

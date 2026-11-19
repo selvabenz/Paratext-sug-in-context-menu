@@ -155,16 +155,13 @@ namespace ParatextNoteSuggestions
     public static class ReviewReportHtml
     {
         static string H(string value) { return WebUtility.HtmlEncode(value ?? ""); }
-        static string[] Elements(string text)
-        { var parts = new List<string>(); var e = StringInfo.GetTextElementEnumerator(text); while (e.MoveNext()) parts.Add((string)e.Current); return parts.ToArray(); }
         public static string ContextHtml(ReviewRecord record, bool after)
         {
             string text = after ? record.AfterContext : record.BeforeContext;
             if (text.Length == 0) return H(after ? "After context unavailable; no verified result is claimed." : "Context not recorded; unavailable for this older/interrupted decision.");
             if (record.BeforeContext.Length == 0 || record.AfterContext.Length == 0 || record.BeforeContext == record.AfterContext) return H(text);
-            var a = Elements(record.BeforeContext); var b = Elements(record.AfterContext); int prefix = 0, suffix = 0;
-            while (prefix < a.Length && prefix < b.Length && a[prefix] == b[prefix]) prefix++;
-            while (suffix < a.Length - prefix && suffix < b.Length - prefix && a[a.Length - 1 - suffix] == b[b.Length - 1 - suffix]) suffix++;
+            var a = TextDiff.Elements(record.BeforeContext); var b = TextDiff.Elements(record.AfterContext); int prefix, suffix;
+            TextDiff.Split(a, b, out prefix, out suffix);
             var selected = after ? b : a;
             return H(String.Concat(selected.Take(prefix))) + "<mark style='background:" + (after ? "#c2f2c2" : "#ffbbb8") + ";color:#191919'>" + H(String.Concat(selected.Skip(prefix).Take(selected.Length - prefix - suffix))) + "</mark>" + H(String.Concat(selected.Skip(selected.Length - suffix)));
         }

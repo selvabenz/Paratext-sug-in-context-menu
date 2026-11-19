@@ -22,6 +22,11 @@ $scripture = @'
 \v 1 இது பழைய சொல்.
 \v 2 பழைய சொல் மற்றும் பழைய சொல்.
 \v 3 உடல் உரை\f + \fr 1:3 \ft பழைய குறிப்பு.\f* முடிவு.
+\v 4 அவன் வீட்டிற்குப் போனான்.\f + \fr 1:4 \ft சில பிரதிகளில் வீட்டிற்கு என்று உள்ளது.\f*
+\v 5 இந்த வசனம் சில பிரதிகளில் இல்லை.
+\v 6 அவர்கள் வந்தான் மற்றும் பேசினான்.
+\q1
+\v 7 கர்த்தர் என் மேய்ப்பர்.
 '@
 [IO.File]::WriteAllText((Join-Path $testDir '01GENNSTest.SFM'), $scripture + "`r`n", $utf8)
 $notes = New-Object Xml.XmlDocument
@@ -29,7 +34,13 @@ $notes.LoadXml('<CommentList/>')
 $cases = @(
     @{ Verse = 1; Topic = 'Punctuation'; Category = 'Punctuation'; Original = 'பழைய சொல்'; Suggested = 'புதிய சொல்'; Decision = 'No' },
     @{ Verse = 2; Topic = 'Grammar'; Category = 'Grammar'; Original = 'பழைய சொல்'; Suggested = 'புதிய சொல்'; Decision = 'No' },
-    @{ Verse = 3; Topic = 'Footnote'; Category = 'Footnote / cross-reference'; Original = 'பழைய குறிப்பு.'; Suggested = 'புதிய குறிப்பு.'; Decision = 'Yes' }
+    @{ Verse = 3; Topic = 'Footnote'; Category = 'Footnote / cross-reference'; Original = 'பழைய குறிப்பு.'; Suggested = 'புதிய குறிப்பு.'; Decision = 'Yes' },
+    # Fast review cases: no ready-to-paste Tamil, an existing variant footnote, two notes in one verse, poetry.
+    @{ Verse = 4; Topic = 'Source reading'; Category = 'Source comparison'; Original = 'வீட்டிற்குப்'; Suggested = 'Use the BSI reading here'; Decision = 'Yes' },
+    @{ Verse = 5; Topic = 'Verse omission'; Category = 'Textual-basis review'; Original = 'இந்த வசனம்'; Suggested = 'Add a footnote: சில பிரதிகளில் இந்த வசனம் காணப்படவில்லை.'; Decision = 'Yes' },
+    @{ Verse = 6; Topic = 'Plural'; Category = 'Plural agreement'; Original = 'வந்தான்'; Suggested = 'வந்தார்கள்'; Decision = 'No' },
+    @{ Verse = 6; Topic = 'Grammar'; Category = 'Grammar'; Original = 'பேசினான்'; Suggested = 'பேசினார்கள்'; Decision = 'No' },
+    @{ Verse = 7; Topic = 'Case marker'; Category = 'Case/object marker'; Original = 'என் மேய்ப்பர்'; Suggested = 'என்னுடைய மேய்ப்பர்'; Decision = 'No' }
 )
 foreach ($case in $cases) {
     $comment = $notes.CreateElement('Comment')

@@ -19,6 +19,14 @@ namespace ParatextNoteSuggestions
     {
         public string Before, After, Scope;
     }
+    // One footnote insertion as previewed: the composer shows it, the write must reproduce it exactly.
+    public sealed class FootnotePlan
+    {
+        public string Text = "", Template = "", Source = "", Usfm = "", Target = "";
+        public bool AfterOriginal;
+        public int Chapter, Verse;
+        public PassageEvidence Preview;
+    }
     sealed class RecoveryRecord
     {
         public string ProjectId, Before, After;
@@ -89,20 +97,128 @@ namespace ParatextNoteSuggestions
         public bool BeginReturnToPassage(NoteCandidate item)
         {
             HighlightTarget(item);
-            // Stay inside the chapter: crossing it makes a by-chapter editor load another
-            // chapter only to leave it again on the next UI tick.
-            var target = item.TargetReference;
-            var previous = target.GetPreviousVerse(project); var following = target.GetNextVerse(project);
-            if (previous != null && SameReference(previous, target)) previous = null;
-            if (following != null && SameReference(following, target)) following = null;
-            var adjacent = previous != null && SameChapter(previous, target) ? previous :
-                following != null && SameChapter(following, target) ? following : previous ?? following;
+            var adjacent = Adjacent(item);
             if (adjacent == null) return false;
             // The project window's own scroll group follows this host call. No other group
             // is sent to the neighbour: every extra window that hops echoes its own reference
             // change back through the host and can overtake the final target.
             host.OpenTextWindowFor(project, OpenWindowBehavior.UseExisting, adjacent);
             return true;
+        }
+        IVerseRef Adjacent(NoteCandidate item)
+        {
+            // Stay inside the chapter: crossing it makes a by-chapter editor load another
+            // chapter only to leave it again on the next UI tick.
+            var target = item.TargetReference;
+            var previous = target.GetPreviousVerse(project); var following = target.GetNextVerse(project);
+            if (previous != null && SameReference(previous, target)) previous = null;
+            if (following != null && SameReference(following, target)) following = null;
+            return previous != null && SameChapter(previous, target) ? previous :
+                following != null && SameChapter(following, target) ? following : previous ?? following;
+        }
+        // Fast review keeps the keyboard in the queue: an editor in a scroll group follows
+        // SetReferenceForSyncGroup without being activated, unlike OpenTextWindowFor.
+        public bool EditorGrouped() { return ProjectWindows().Any(w => w.SyncReferenceGroup != SyncReferenceGroup.None); }
+        public void QuietNavigate(NoteCandidate item) { HighlightTarget(item); ReassertNavigation(item, false); }
+        public bool BeginQuietReturn(NoteCandidate item)
+        {
+            HighlightTarget(item);
+            var adjacent = Adjacent(item);
+            if (adjacent == null) return false;
+            foreach (var group in ProjectWindows().Select(w => w.SyncReferenceGroup).Where(g => g != SyncReferenceGroup.None).Distinct().ToList())
+                host.SetReferenceForSyncGroup(adjacent, group);
+            return true;
+        }
+        // Reference texts are read-only, shown beside a note and never stored, exported or reported.
+        // Paratext may refuse resource text to plugins without a resource access token.
+        public List<string> ReferenceSourceNames()
+        {
+            try { return host.GetAllProjects(true).Where(p => p.ID != projectId).Select(p => p.ShortName).Distinct().OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList(); }
+            catch (Exception) { return new List<string>(); }
+        }
+        public string ReadReference(string name, NoteCandidate item, out string label)
+        {
+            var source = host.GetAllProjects(true).FirstOrDefault(p => p.ShortName == name);
+            if (source == null) throw new InvalidOperationException(name + " is not available to plugins.");
+            var references = new List<IVerseRef>();
+            for (int v = item.FirstVerse; item.Chapter > 0 && v <= Math.Min(item.LastVerse, item.FirstVerse + 4); v++)
+            {
+                // The source may number verses differently; Paratext maps the reference.
+                var mapped = project.Versification.CreateReference(item.Book, item.Chapter, v).ChangeVersification(source.Versification);
+                foreach (var r in mapped.RepresentsMultipleVerses ? (IEnumerable<IVerseRef>)mapped.AllVerses : new[] { mapped })
+                    if (!references.Any(x => SameReference(x, r))) references.Add(r);
+            }
+            label = name + " " + String.Join(", ", references.Select(r => r.ToString()));
+            return String.Join(" ", references.Select(r => String.Concat(TokenMapping.Parts(source.GetUSFMTokens(r.BookNum, r.ChapterNum, r.VerseNum).ToList())
+                .Where(t => t.Region == ContentRegion.Body).Select(t => t.Text)).Trim())).Trim();
+        }
+        // Fallback when plugins cannot read resources: Paratext's own windows, which follow the scroll group.
+        public List<string> OpenReferenceWindows(IEnumerable<string> names, NoteCandidate item)
+        {
+            var lines = new List<string>();
+            foreach (string name in names)
+                try
+                {
+                    var enhanced = host.AllEnhancedResources.FirstOrDefault(r => r.ShortName == name);
+                    if (enhanced != null) { host.OpenEnhancedResourceWindowFor(enhanced, OpenWindowBehavior.UseExisting, item.TargetReference); lines.Add(name + ": opened as an enhanced resource window."); continue; }
+                    IReadOnlyProject source = host.AllResources.FirstOrDefault(r => r.ShortName == name) ?? host.GetAllProjects(true).FirstOrDefault(p => p.ShortName == name);
+                    if (source == null) { lines.Add(name + ": not installed."); continue; }
+                    host.OpenTextWindowFor(source, OpenWindowBehavior.UseExisting, item.TargetReference); lines.Add(name + ": opened.");
+                }
+                catch (Exception ex) { lines.Add(name + ": could not be opened (" + ex.Message + ")."); }
+            return lines;
+        }
+        public List<string> TargetTexts(NoteCandidate item, ContentRegion region)
+        {
+            var tokens = project.GetUSFMTokens(item.Book, region == ContentRegion.Introduction || item.CrossChapter ? 0 : item.Chapter).ToList();
+            return TokenMapping.Parts(tokens).Where(t => t.Region == region && (region == ContentRegion.Introduction || (t.Chapter == item.Chapter && t.Verse >= item.FirstVerse && t.Verse <= item.LastVerse)))
+                .Select(t => t.Text).Where(t => t.Length > 0).ToList();
+        }
+        // What Paratext lets this plugin do, for fast review set-up. Logs sizes and outcomes, never resource text.
+        public List<string> ProbeHost(NoteCandidate item)
+        {
+            var lines = new List<string> { "Paratext " + host.ApplicationVersion + ", project " + project.ShortName + "." };
+            int book = item == null ? 1 : item.Book, chapter = item == null ? 1 : Math.Max(1, item.Chapter), verse = item == null ? 1 : Math.Max(1, item.FirstVerse);
+            try
+            {
+                foreach (var source in host.GetAllProjects(true).Where(p => p.ID != projectId))
+                {
+                    string outcome;
+                    try
+                    {
+                        int length = TokenMapping.Parts(source.GetUSFMTokens(book, chapter, verse).ToList()).Where(t => t.Region == ContentRegion.Body).Sum(t => t.Text.Length);
+                        outcome = length > 0 ? "readable (" + length + " characters at this verse; text not logged)" : "no verse text returned";
+                    }
+                    catch (Exception ex) { outcome = "refused (" + ex.GetType().Name + ")"; }
+                    lines.Add("Source " + source.ShortName + (source.IsResource ? " [resource, " : " [project, ") + source.Type + "]: " + outcome);
+                }
+            }
+            catch (Exception ex) { lines.Add("Listing projects and resources failed: " + ex.GetType().Name + ": " + ex.Message); }
+            try { lines.Add("Enhanced resources (no plugin text access): " + String.Join(", ", host.AllEnhancedResources.Select(r => r.ShortName))); }
+            catch (Exception ex) { lines.Add("Enhanced resources unavailable: " + ex.GetType().Name); }
+            try
+            {
+                foreach (var w in host.AllOpenWindows.Where(w => w != null && w.Project != null))
+                {
+                    var selected = w.Selections == null ? null : w.Selections.OfType<IScriptureTextSelection>().FirstOrDefault();
+                    lines.Add("Window " + w.Project.ShortName + (w.Project.IsResource ? " (resource)" : "") + ", scroll group " + w.SyncReferenceGroup + ", selection " +
+                        (selected == null ? "none reported" : (selected.SelectedText ?? "").Length + " characters"));
+                }
+            }
+            catch (Exception ex) { lines.Add("Open windows unavailable: " + ex.GetType().Name); }
+            if (item != null)
+                foreach (bool afterOriginal in new[] { true, false })
+                {
+                    string where = afterOriginal ? "after Original" : "end of verse";
+                    try { var plan = ForQueueItem(item).PreviewFootnote(item, "சோதனை", afterOriginal); lines.Add("Footnote dry run, " + where + " (nothing written): accepted at " + plan.Target + "; Paratext reparsed the chapter identically."); }
+                    catch (Exception ex) { lines.Add("Footnote dry run, " + where + " (nothing written): refused: " + ex.Message); }
+                }
+            return lines;
+        }
+        public string EditorSelectionText()
+        {
+            var selection = ProjectWindows().Where(w => w.Selections != null).SelectMany(w => w.Selections.OfType<IScriptureTextSelection>()).FirstOrDefault(s => !String.IsNullOrEmpty(s.SelectedText));
+            return selection == null ? "" : selection.SelectedText;
         }
         static bool SameReference(IVerseRef left, IVerseRef right)
         { return SameChapter(left, right) && left.VerseNum == right.VerseNum; }
@@ -414,7 +530,7 @@ namespace ParatextNoteSuggestions
                 throw new InvalidOperationException("A word may cross a formatting boundary; review this target individually.");
             string before = Passage(tokens, candidate, p.Region);
             tokens[match.TokenIndex] = new ChangedTextToken(old, ExactEditor.Replace(old.Text, match));
-            return new PassageEvidence { Before = before, After = Passage(tokens, candidate, p.Region), Scope = p.Region == ContentRegion.Introduction ? "Full book introduction (USFM)" : p.Region == ContentRegion.Heading ? "Full chapter heading/passage (USFM)" : "Full anchored passage (USFM)" };
+            return new PassageEvidence { Before = before, After = Passage(tokens, candidate, p.Region), Scope = EvidenceScope(p.Region) };
         }
         static bool InlineAdjacent(IList<IUSFMToken> tokens, int left, int right, ContentRegion region)
         {
@@ -434,7 +550,7 @@ namespace ParatextNoteSuggestions
             return !String.IsNullOrWhiteSpace(text) && text == text.Trim() && text.Any(c => c >= '\u0b80' && c <= '\u0bff') &&
                 text.All(c => c == ' ' || (c >= '\u0b80' && c <= '\u0bff' && (Char.IsLetter(c) || Char.GetUnicodeCategory(c) == System.Globalization.UnicodeCategory.NonSpacingMark || Char.GetUnicodeCategory(c) == System.Globalization.UnicodeCategory.SpacingCombiningMark)));
         }
-        static bool TamilLiteral(string text, bool punctuationOnly)
+        internal static bool TamilLiteral(string text, bool punctuationOnly)
         {
             const string punctuation = ".,;:!?\u2018\u2019\u201c\u201d\u2013\u2014-'\"";
             return !String.IsNullOrWhiteSpace(text) && text == text.Trim() &&
@@ -447,15 +563,40 @@ namespace ParatextNoteSuggestions
             var kind = Char.GetUnicodeCategory(text, index);
             return Char.IsLetterOrDigit(text, index) || kind == System.Globalization.UnicodeCategory.NonSpacingMark || kind == System.Globalization.UnicodeCategory.SpacingCombiningMark;
         }
-        public void Apply(NoteCandidate candidate, string original, string replacement, ContentRegion region, bool reviewed, bool explicitDeletion = false, Action beforeSubmit = null, Action<PassageEvidence> captureEvidence = null, bool reviewedBulkCorrection = false)
+        static void ValidateReplacement(NoteCandidate candidate, string replacement, ContentRegion region, bool reviewed, bool explicitDeletion)
         {
-            CheckContext();
             if (region == ContentRegion.Structure) throw new InvalidOperationException("Choose the structural marker review action for this proposal.");
             if (candidate.Proposal.Route == ProposalRoute.NoChange) throw new InvalidOperationException("This is a no-change proposal.");
             if (candidate.Proposal.Route == ProposalRoute.Structure) throw new InvalidOperationException("Structural proposals cannot be applied through a text action.");
             if (String.IsNullOrEmpty(replacement) && !(reviewed && explicitDeletion)) throw new InvalidOperationException("An empty replacement requires the explicit deletion option and review.");
             if (replacement != null && Regex.IsMatch(replacement, @"[A-Za-z]|\s/\s|[\u2026]|\.\.\."))
                 throw new InvalidOperationException("Choose one literal Tamil correction without English commentary, alternative separators, or omission placeholders. This preview does not apply Latin-text replacements; review those directly in Paratext.");
+        }
+        static string EvidenceScope(ContentRegion region)
+        { return region == ContentRegion.Introduction ? "Full book introduction (USFM)" : region == ContentRegion.Heading ? "Full chapter heading/passage (USFM)" : "Full anchored passage (USFM)"; }
+        // Read-only: the exact passage before and after a reviewed Apply of this text. Apply repeats
+        // every check under its write lock; fast review requires the two results to be identical.
+        public PassageEvidence PreviewApply(NoteCandidate candidate, string original, string replacement, ContentRegion region)
+        {
+            CheckContext();
+            ValidateReplacement(candidate, replacement, region, true, false);
+            var fresh = Fresh(candidate);
+            int scope = region == ContentRegion.Introduction ? 0 : candidate.Chapter;
+            if (!project.CanEdit(plugin, candidate.Book, scope)) throw new InvalidOperationException("You do not have editing permission for this passage.");
+            var tokens = project.GetUSFMTokens(candidate.Book, scope).ToList();
+            var match = ExactEditor.Locate(TokenMapping.Parts(tokens), region, candidate.Chapter, candidate.FirstVerse, candidate.LastVerse, original, replacement,
+                original == fresh.AnchorText ? fresh.Before : "", original == fresh.AnchorText ? fresh.After : "");
+            var old = tokens[match.TokenIndex] as IUSFMTextToken;
+            if (old == null) throw new InvalidOperationException("The selected target is not a Scripture text token.");
+            string before = Passage(tokens, candidate, region);
+            tokens[match.TokenIndex] = new ChangedTextToken(old, ExactEditor.Replace(old.Text, match));
+            return new PassageEvidence { Before = before, After = Passage(tokens, candidate, region), Scope = EvidenceScope(region) };
+        }
+        public string Normalize(string text) { return project.NormalizeText(text); }
+        public void Apply(NoteCandidate candidate, string original, string replacement, ContentRegion region, bool reviewed, bool explicitDeletion = false, Action beforeSubmit = null, Action<PassageEvidence> captureEvidence = null, bool reviewedBulkCorrection = false)
+        {
+            CheckContext();
+            ValidateReplacement(candidate, replacement, region, reviewed, explicitDeletion);
             int scope = region == ContentRegion.Introduction ? 0 : candidate.Chapter;
             if (!project.CanEdit(plugin, candidate.Book, scope)) throw new InvalidOperationException("You do not have editing permission for this passage.");
             // In the real host, history checkpoints can release outstanding editor/plugin locks.
@@ -483,7 +624,7 @@ namespace ParatextNoteSuggestions
                 if (old == null) throw new InvalidOperationException("The selected target is not a Scripture text token.");
                 tokens[match.TokenIndex] = new ChangedTextToken(old, ExactEditor.Replace(old.Text, match));
                 string expected = project.ConvertToUSFMString(tokens);
-                if (captureEvidence != null) captureEvidence(new PassageEvidence { Before = passageBefore, After = Passage(tokens, candidate, region), Scope = region == ContentRegion.Introduction ? "Full book introduction (USFM)" : region == ContentRegion.Heading ? "Full chapter heading/passage (USFM)" : "Full anchored passage (USFM)" });
+                if (captureEvidence != null) captureEvidence(new PassageEvidence { Before = passageBefore, After = Passage(tokens, candidate, region), Scope = EvidenceScope(region) });
                 if (revoked) throw new InvalidOperationException("The write lock was withdrawn. No edit was submitted.");
                 if (beforeSubmit != null) beforeSubmit();
                 if (revoked) throw new InvalidOperationException("The write lock was withdrawn before submission.");
@@ -542,6 +683,114 @@ namespace ParatextNoteSuggestions
             }
             HistoryAfterWrite("Note Suggestions marker correction");
         }
+        // A private-use character marks the insertion point while Paratext serializes the chapter.
+        const char FootnoteMark = '';
+        public static void ValidateFootnoteText(string text)
+        {
+            if (String.IsNullOrWhiteSpace(text)) throw new InvalidOperationException("The footnote text is empty.");
+            if (text != text.Trim()) throw new InvalidOperationException("The footnote text starts or ends with a space.");
+            if (Regex.IsMatch(text, @"[\\\r\n\0{}|" + FootnoteMark + "]")) throw new InvalidOperationException("A footnote cannot contain a backslash, line break, brace or bar; those would change USFM structure. Nothing was written.");
+            if (Regex.IsMatch(text, "[A-Za-z]")) throw new InvalidOperationException("The footnote text contains Latin letters. Only Tamil footnotes are inserted here; add others in Paratext.");
+        }
+        // Read-only: the exact chapter change a footnote insertion would make now.
+        public FootnotePlan PreviewFootnote(NoteCandidate candidate, string text, bool afterOriginal)
+        {
+            CheckContext();
+            ValidateFootnoteText(text);
+            var fresh = Fresh(candidate);
+            if (!project.CanEdit(plugin, candidate.Book, candidate.Chapter)) throw new InvalidOperationException("You do not have editing permission for this chapter.");
+            List<IUSFMToken> reparsed; string expected;
+            return BuildFootnote(project.GetUSFMTokens(candidate.Book, candidate.Chapter).ToList(), candidate, fresh, text, afterOriginal, out reparsed, out expected);
+        }
+        FootnotePlan BuildFootnote(List<IUSFMToken> tokens, NoteCandidate candidate, NoteCandidate fresh, string text, bool afterOriginal, out List<IUSFMToken> reparsed, out string expected)
+        {
+            if (project.NormalizeText(text) != text) throw new InvalidOperationException("The footnote text is not in the project's Unicode normalization. Retype it, or paste it from the project text.");
+            string before = project.ConvertToUSFMString(tokens);
+            if (before.IndexOf(FootnoteMark) >= 0) throw new InvalidOperationException("This chapter already contains a private-use character the footnote check relies on. Add the footnote in Paratext.");
+            var body = TokenMapping.Parts(tokens).Where(t => t.Region == ContentRegion.Body && t.Chapter == candidate.Chapter && t.Verse >= candidate.FirstVerse && t.Verse <= candidate.LastVerse && t.Text.Length > 0).ToList();
+            int index, offset, verse; string target;
+            if (afterOriginal)
+            {
+                var p = candidate.Proposal;
+                var match = ExactEditor.Find(body, ContentRegion.Body, candidate.Chapter, candidate.FirstVerse, candidate.LastVerse, p.Original,
+                    p.Original == fresh.AnchorText ? fresh.Before : "", p.Original == fresh.AnchorText ? fresh.After : "");
+                index = match.TokenIndex; offset = match.Start + match.Length; verse = body.First(t => t.TokenIndex == index).Verse; target = p.Original;
+            }
+            else
+            {
+                var last = body.LastOrDefault(t => t.Verse == candidate.LastVerse && t.Text.Trim().Length > 0);
+                if (last == null) throw new InvalidOperationException("No verse text was found for the end-of-verse footnote. Add it in Paratext.");
+                index = last.TokenIndex; offset = last.Text.TrimEnd().Length; verse = last.Verse;
+                target = "[end of verse " + candidate.Chapter + ":" + verse + "]";
+            }
+            var old = tokens[index] as IUSFMTextToken;
+            if (old == null || (old.VerseRef != null && old.VerseRef.RepresentsMultipleVerses)) throw new InvalidOperationException("The footnote position is in a bridged verse or not plain verse text. Add it in Paratext.");
+            if (candidate.Chapter < 1 || verse < 1) throw new InvalidOperationException("The note is not anchored in a numbered verse. Add the footnote in Paratext.");
+            if (offset > 0 && offset < old.Text.Length && WordCharacter(old.Text, offset - 1) && WordCharacter(old.Text, offset))
+                throw new InvalidOperationException("The footnote call would split a word. Choose end of verse, or add it in Paratext.");
+            // A character style can continue the same word in the next token without a space.
+            var following = body.FirstOrDefault(t => t.TokenIndex > index && t.Verse == verse);
+            if (offset == old.Text.Length && offset > 0 && WordCharacter(old.Text, offset - 1) && following != null &&
+                InlineAdjacent(tokens, index, following.TokenIndex, ContentRegion.Body) && WordCharacter(following.Text, 0))
+                throw new InvalidOperationException("The footnote call would split a word that continues in formatted text. Choose end of verse, or add it in Paratext.");
+            if (TokenMapping.Parts(tokens).Any(t => t.Region == ContentRegion.Footnote && t.Chapter == candidate.Chapter && t.Verse == verse && t.Text.Trim() == text))
+                throw new InvalidOperationException("This verse already has a footnote with exactly this text. Nothing was written.");
+            string literal = "\\f + \\fr " + candidate.Chapter + ":" + verse + " \\ft " + text + "\\f*";
+            var marked = tokens.ToList(); marked[index] = new ChangedTextToken(old, old.Text.Insert(offset, FootnoteMark.ToString()));
+            string markedUsfm = project.ConvertToUSFMString(marked);
+            if (markedUsfm.Count(c => c == FootnoteMark) != 1 || markedUsfm.Replace(FootnoteMark.ToString(), "") != before)
+                throw new InvalidOperationException("Paratext changed other text while preparing the footnote. Nothing was written; add it in Paratext.");
+            expected = markedUsfm.Replace(FootnoteMark.ToString(), literal);
+            reparsed = project.ConvertToUSFMTokens(expected, candidate.Book, candidate.Chapter, 0).ToList();
+            if (project.ConvertToUSFMString(reparsed) != expected) throw new InvalidOperationException("Paratext's USFM round trip changed the footnote insertion. Nothing was written; add it in Paratext.");
+            CheckOneFootnoteAdded(tokens, reparsed, candidate.Chapter + ":" + verse + " " + text);
+            return new FootnotePlan { Text = text, Usfm = literal, Target = target, AfterOriginal = afterOriginal, Chapter = candidate.Chapter, Verse = verse,
+                Preview = new PassageEvidence { Before = Passage(tokens, candidate, ContentRegion.Body), After = Passage(reparsed, candidate, ContentRegion.Body), Scope = EvidenceScope(ContentRegion.Body) } };
+        }
+        // The reparsed chapter must differ from the original only by one \f + \fr \ft \f* note with the expected text.
+        static void CheckOneFootnoteAdded(List<IUSFMToken> before, List<IUSFMToken> after, string noteText)
+        {
+            Func<List<IUSFMToken>, List<string>> markers = ts => ts.OfType<IUSFMMarkerToken>().Select(m => m.Marker.TrimStart('\\')).ToList();
+            var a = markers(before); var b = markers(after); int k = 0;
+            while (k < a.Count && k < b.Count && a[k] == b[k]) k++;
+            bool shape = b.Count == a.Count + 4 && b.Skip(k).Take(4).SequenceEqual(new[] { "f", "fr", "ft", "f*" }) && b.Skip(k + 4).SequenceEqual(a.Skip(k));
+            Func<List<IUSFMToken>, string> text = ts => String.Join("\u0001", TokenMapping.Parts(ts).Where(t => t.Region != ContentRegion.Footnote && t.Region != ContentRegion.CrossReference)
+                .GroupBy(t => t.Region + ":" + t.Chapter + ":" + t.Verse).Select(g => g.Key + "=" + String.Concat(g.Select(t => t.Text))));
+            var notes = TokenMapping.Parts(after).Where(t => t.Region == ContentRegion.Footnote).Select(t => t.Text).ToList();
+            foreach (var existing in TokenMapping.Parts(before).Where(t => t.Region == ContentRegion.Footnote)) notes.Remove(existing.Text);
+            Func<string, string> collapse = s => Regex.Replace(s, @"\s+", " ").Trim();
+            if (!shape || text(before) != text(after) || collapse(String.Concat(notes)) != collapse(noteText))
+                throw new InvalidOperationException("The prepared chapter would change more than one footnote. Nothing was written; add it in Paratext.");
+        }
+        public void InsertFootnote(NoteCandidate candidate, FootnotePlan plan, Action beforeSubmit = null, Action<PassageEvidence> captureEvidence = null)
+        {
+            CheckContext();
+            ValidateFootnoteText(plan.Text);
+            if (!project.CanEdit(plugin, candidate.Book, candidate.Chapter)) throw new InvalidOperationException("You do not have editing permission for this chapter.");
+            // History checkpoints can release outstanding locks: take it before requesting ours.
+            project.MakeHistoryPoint("Before Note Suggestions footnote", true);
+            bool revoked = false;
+            using (var writeLock = project.RequestWriteLock(plugin, delegate { revoked = true; }, candidate.Book, candidate.Chapter))
+            {
+                if (writeLock == null) throw new InvalidOperationException("Paratext could not grant a Scripture write lock. Try again when the chapter is available.");
+                var fresh = Fresh(candidate);
+                if (!project.CanEdit(plugin, candidate.Book, candidate.Chapter)) throw new InvalidOperationException("Editing permission was withdrawn. No edit was submitted.");
+                var tokens = project.GetUSFMTokens(candidate.Book, candidate.Chapter).ToList();
+                string before = project.ConvertToUSFMString(tokens);
+                List<IUSFMToken> reparsed; string expected;
+                var built = BuildFootnote(tokens, candidate, fresh, plan.Text, plan.AfterOriginal, out reparsed, out expected);
+                if (built.Usfm != plan.Usfm || built.Target != plan.Target) throw new InvalidOperationException("The footnote position changed after the preview. Nothing was written; preview it again.");
+                if (captureEvidence != null) captureEvidence(built.Preview);
+                if (revoked) throw new InvalidOperationException("The write lock was withdrawn. No edit was submitted.");
+                if (beforeSubmit != null) beforeSubmit();
+                if (revoked) throw new InvalidOperationException("The write lock was withdrawn before submission.");
+                Recovery[projectId] = new RecoveryRecord { ProjectId = projectId, Book = candidate.Book, Chapter = candidate.Chapter, Before = before, After = expected };
+                project.PutUSFMTokens(writeLock, reparsed, candidate.Book);
+                writeLock.SendNotifications();
+                Verify(candidate.Book, candidate.Chapter, expected);
+            }
+            HistoryAfterWrite("Note Suggestions footnote");
+        }
         void HistoryAfterWrite(string message)
         {
             try { project.MakeHistoryPoint(message, true); }
@@ -557,7 +806,8 @@ namespace ParatextNoteSuggestions
             string saved = project.ConvertToUSFMString(project.GetUSFMTokens(bookNumber, chapterNumber).ToList());
             if (saved != expected) throw new InvalidOperationException("An edit was submitted, but saved USFM does not match the expected result. Do not retry blindly. Review Paratext history and use Revert last plugin edit only if its current-text check succeeds.");
         }
-        public void Revert()
+        public void Revert() { Revert(null); }
+        void Revert(Action beforeSubmit)
         {
             CheckContext(); RecoveryRecord record;
             if (!Recovery.TryGetValue(projectId, out record)) throw new InvalidOperationException("No edit from this plugin session is available to revert. Use Paratext project history for older changes.");
@@ -571,10 +821,31 @@ namespace ParatextNoteSuggestions
                 if (current != record.After) throw new InvalidOperationException("The saved passage changed after the plugin edit. Reverting would overwrite another edit, so nothing was changed. Review project history.");
                 var tokens = project.ConvertToUSFMTokens(record.Before, record.Book, record.Chapter, 0).ToList();
                 if (project.ConvertToUSFMString(tokens) != record.Before || revoked) throw new InvalidOperationException("The original USFM could not be restored exactly; no revert was submitted.");
+                if (beforeSubmit != null) beforeSubmit();
+                if (revoked) throw new InvalidOperationException("The write lock was withdrawn before the revert was submitted.");
                 project.PutUSFMTokens(writeLock, tokens, record.Book); writeLock.SendNotifications(); Verify(record.Book, record.Chapter, record.Before);
                 Recovery.Remove(projectId);
             }
             HistoryAfterWrite("Reverted Note Suggestions correction");
+        }
+        // Undo of the queue's last decision while its note reply is still held. Reverts only this
+        // plugin's last edit, and only while the passage is exactly what that decision wrote.
+        public void RevertDecision(NoteCandidate item, ReviewRecord record, Action beforeSubmit)
+        {
+            RecoveryRecord recovery; ContentRegion region;
+            if (!Enum.TryParse(record.Region, out region)) region = ContentRegion.Body;
+            int scope = region == ContentRegion.Introduction || item.CrossChapter ? 0 : item.Chapter;
+            // The plugin's last edit must be this decision's edit: same scope, and the same passage before and after.
+            // Another plugin edit made since (e.g. from the context menu) is never reverted in its place.
+            if (!Recovery.TryGetValue(projectId, out recovery) || recovery.Book != item.Book || recovery.Chapter != scope || record.AfterContext.Length == 0 || record.BeforeContext.Length == 0 ||
+                Passage(project.ConvertToUSFMTokens(recovery.After, recovery.Book, recovery.Chapter, 0).ToList(), item, region) != record.AfterContext ||
+                Passage(project.ConvertToUSFMTokens(recovery.Before, recovery.Book, recovery.Chapter, 0).ToList(), item, region) != record.BeforeContext)
+                throw new InvalidOperationException("The plugin's last edit in this session is not this decision. Nothing was reverted; use Paratext project history.");
+            if (CapturePassage(item, region) != record.AfterContext)
+                throw new InvalidOperationException("The passage changed after this decision. Undo would overwrite that change, so nothing was reverted. Use Paratext project history.");
+            Revert(beforeSubmit);
+            if (CapturePassage(item, region) != record.BeforeContext)
+                throw new InvalidOperationException("Paratext restored the chapter, but the passage differs from the text before this decision. Check it in project history before continuing.");
         }
     }
 

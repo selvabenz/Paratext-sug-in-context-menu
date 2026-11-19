@@ -1,4 +1,13 @@
-﻿# 0.4.1-preview - 19 November 2026
+﻿# Unreleased - fast review (branch fast-review)
+
+- **Fast review tab** in the review queue: one key per note (F5 apply, F6 reject, F7 fixed by hand, F8 footnote, F9 skip, PgUp/PgDn browse, F11 undo), with comments filled in automatically by category and outcome. The apply key writes exactly the before/after shown; a refusal writes nothing and leaves the note in place. Function keys by default; single letters are opt-in.
+- **Undo** of the last fast decision while its note reply is held. The reply is posted at the next action.
+- **Footnote composer** with editable templates (சில பிரதிகளில் … இவ்வாறு உள்ளது / காணப்படவில்லை and the project's existing forms). It inserts one ` + r C:V t …*` after the note's Original or at the verse end, validated by Paratext's reparse.
+- **Notes without ready-to-paste Tamil**: stop for a manual edit, leave for a later round, or use an imported wording sheet labelled as not from the note.
+- **Reference texts** (ESV, Tamil BSI) beside the note when Paratext allows plugin access; otherwise opened as Paratext windows. **Host probe** on the Tools tab.
+- 269 synthetic checks pass. Not yet tested inside Paratext; see [FAST_REVIEW.md](FAST_REVIEW.md) and the checklist in [VALIDATION.md](VALIDATION.md).
+
+# 0.4.1-preview - 19 November 2026
 
 First published 0.4 release (0.4.0-preview was not published: the release build's tests exceeded the Windows path limit on GitHub's runner).
 

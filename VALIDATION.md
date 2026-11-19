@@ -109,3 +109,29 @@ The installed working-tree build passed **221 synthetic checks, zero failed**, w
 In disposable NSTest, Next/Previous returned between GEN 2:2 and 2:12. Manual/no-change, Apply + next and Reject + next saved the expected replies and advanced without completion popups. Apply made one verified verse-12 correction; the full saved file matched the expected change after accounting for host line-end whitespace normalization. The three completed threads each contain one decision reply and a native terminal status record. A malformed out-of-range final fixture was corrected; reopening and Return retained valid GEN 2:24 in the project window and toolbar. All 772 protected Scripture/note files outside NSTest remained byte-for-byte unchanged. No production decisions or Send/Receive were performed.
 
 The queue now enlarges only the passage reference. Bulk previews/execution retain modeless result popups; indexing, single decisions and resolution retries update the footer without one. The same-verse reveal broadcasts both the temporary neighbour and final pinned target to the selected group; this addresses an unchanged group reference defeating the reveal. Group B received host coverage; all groups and exact viewport/caret alignment remain outside this host acceptance. See [the detailed report](REVIEW_QUEUE_FIX_REPORT.md).
+
+## Fast review - development build, 19 November 2026
+
+**269 synthetic checks, zero failed**, with warnings-as-errors compilation against the installed Paratext 9.5.110.1 interfaces. The 41 new checks cover:
+- fast apply bound to the displayed preview, and refusal when the passage changed after it was shown;
+- no arming for alternatives, English or ellipses;
+- keys ignored while paused or after a decision; key repeat; comment-box typing;
+- automatic and overridden comments; fixed-by-hand with and without a saved change;
+- scroll-group navigation without window activation;
+- later-round skipping that never hides Recovery;
+- undo (complete, refused after a later edit or another plugin edit, rejection, waits while paused), held replies posted exactly once and never for reverted text, crash recovery, choices bound to their note;
+- footnote insertion (exact USFM, end of verse, refusals for markup/Latin/duplicates/round-trip failure/word split/ambiguity/locks, unverified save, decision record);
+- template validation and the composer's text sources;
+- reference reading, refusal caching and non-persistence;
+- wording export, import refusals, labelled prepared wording and stale fallback.
+
+Not yet tested inside Paratext. Run in disposable NSTest (`scripts/prepare-test-project.ps1` now adds an instruction-only Source comparison note, a Textual-basis note, two notes in one verse, an existing variant footnote and a poetry verse):
+
+1. **Tools > Host probe**, with the queue docked and again floating, with ESVUS11 and TAOVBSI windows open and text selected in each. Save the Log tab.
+2. With the editor in the queue's scroll group: about 30 presses over every key. The Log tab must show no "LOST the keyboard" line. A refused apply must stay on its note.
+3. Apply then F11; edit by hand then F11 (refused); close with a held reply and reopen (Recovery, one reply on retry).
+4. F8 after a word and at the end of a verse. Compare the saved SFM byte for byte with the expected `\f + \fr C:V \ft …\f*`. Check that an identical footnote is refused and that F11 restores the file.
+5. Reference boxes, or Open reference windows, follow Next; check the label at a Psalm title.
+6. Wording sheet with one valid entry and one of each refused kind.
+
+Before the first real book, run Send/Receive or back up IRVTam. Then work 3JN, JUD, OBA in that order. After each book, compare the HTML report and the saved SFM against the backup.

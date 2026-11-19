@@ -33,7 +33,11 @@ No .NET SDK installation is needed. The build uses Windows' .NET Framework C# co
 | src/ReviewForm.cs | Category filter, source discussion, editable literal correction, explicit deletion, review acknowledgement and supported marker action. |
 | src/ParatextTheme.cs | Paratext look for every window: live theme colours/icons/toolbar renderer via the public `ThemeEx`/`Theme.Current` types (installed theme files as fallback), ThemeExtender colour rules, standard command buttons, dialog button rows, wrapping and responsive list/detail splits. |
 | src/QueueControl.cs | The review queue as a docked Paratext child window (`IParatextWindowPlugin`, `EmbeddedPluginControl`). |
-| src/QueueForm.cs | Modeless project-wide QA queue, cooperative book indexing, pinned target navigation, explicit decisions, pause/resume and interrupted-write reconciliation. |
+| src/QueueForm.cs | Modeless project-wide QA queue, cooperative book indexing, pinned target navigation, explicit decisions, pause/resume and interrupted-write reconciliation. Fast review tab: `ProcessCmdKey`/`FastKey`, `RefreshFast` (preview the apply key), `DecideWith` (fast choice bound to the displayed preview), held reply (`FlushHeld`) and `Undo`, quiet scroll-group navigation, later-round skipping, probe, references and wording import. |
+| src/FastReview.cs | Fast review settings (`fast-settings.xml`), key map (function keys by default, letters opt-in), `FastChoice`, `DiffBox` and the settings dialog. |
+| src/FootnoteComposer.cs | Footnote templates (`footnote-presets.xml`) and the composer that previews one `\f + \fr C:V \ft …\f*` insertion. |
+| src/WordingSheet.cs | Wording export (id, note fields, passage USFM and hash), strict sheet import and accepted entries (`wording\entries.xml`). |
+| tests/FastReviewTests.cs, FootnoteTests.cs, ReferenceTests.cs, WordingSheetTests.cs | Fast decisions and refusals, keys, comments, navigation, later round, undo; footnote insertion and refusals; reference reading and non-persistence; wording export/import. |
 | src/ReviewReports.cs | Curated comment presets, project-ID checked report location, session journal/report recovery, encoded offline HTML with Unicode-aware diff and modeless embedded viewer. |
 | tests/ReportTests.cs | Presets, locked context capture, reviewer identity, 20/100 sessions, full footnote/intro/cross-chapter context, unchanged rejections, unverified edits, markup escaping and crash/audit recovery. |
 | src/ReviewProgress.cs | Per-user/project atomic XML decisions and drafts, exclusive session lease and CSV export. |
@@ -50,7 +54,9 @@ No raw project filesystem writes are used. No Send/Receive or export is invoked.
 
 For text edits, chapter scope is used except introductions (whole book, chapter argument 0). Intro, body, heading, footnote and cross-reference content are separated using the public token flags and surrounding markers. Unknown/special/metadata/figure content is excluded. Spans crossing token boundaries are refused; do not flatten markup to make a match.
 
-The only supported structural writer is a deliberately small marker-rename operation: one of `ms`, `ms1`–`ms3`, `s`, `s1`–`s4`, `cl`, `cd` may become another of those markers if its whole label is identical and uniquely anchored. Generated USFM is reparsed and compared before saving. Verse/chapter numbers, attributes, note boundaries and verse exchanges are excluded.
+There are two structural writers, both deliberately small. The marker rename changes one of `ms`, `ms1`–`ms3`, `s`, `s1`–`s4`, `cl`, `cd` into another of those markers if its whole label is identical and uniquely anchored. `InsertFootnote` (fast review) adds one `\f + \fr C:V \ft text\f*` after a uniquely located Original or at the end of a verse. It builds the expected chapter by serializing it with one private-use mark in a single `ChangedTextToken`, requires everything else to be byte-identical, substitutes the footnote, and requires the host's reparse to round-trip exactly. It then checks that the marker sequence gained only `f fr ft f*`, that all non-note text is unchanged and that the new note text is as expected. Generated USFM is reparsed and compared before saving in both writers. Verse/chapter numbers, attributes, other note boundaries and verse exchanges are excluded.
+
+Fast review binds a key press to the displayed preview: `PreviewApply`/`PreviewFootnote` produce the same `PassageEvidence` that the write computes under its lock, and the queue refuses the write if they differ. With "hold reply" on, the note reply and resolution trail by one action so `RevertDecision` can undo the last decision completely; it reverts only while the passage still equals the recorded after-state.
 
 ## API findings and tradeoffs
 

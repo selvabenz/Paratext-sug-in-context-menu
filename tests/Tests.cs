@@ -71,6 +71,10 @@ namespace NoteSuggestionsTests
         public string UserName = "Synthetic Reviewer";
         public string ProjectId = Guid.NewGuid().ToString(), NoteText, AnchorText = "பழைய", Before = "", After = "", DiskFile;
         public IReadOnlyList<ISelection> Selections = new List<ISelection>();
+        // Opt-in: serialize end markers without a trailing space and parse USFM text the host has not produced.
+        public bool RealisticUsfm, ReparseDropsLastToken;
+        public Func<string, string> Normalizer;
+        public List<IProject> OtherProjects = new List<IProject>();
         public Fixture()
         {
             Ref = MakeRef(1, 3);
@@ -135,8 +139,13 @@ namespace NoteSuggestionsTests
                     case "ConvertToUSFMString": return Serialize((IEnumerable<IUSFMToken>)a[0]);
                     case "ConvertToUSFMTokens":
                         List<IUSFMToken> saved;
+                        if (RealisticUsfm && !Serialized.TryGetValue((string)a[0], out saved)) { saved = Parse((string)a[0]); if (ReparseDropsLastToken) saved.RemoveAt(saved.Count - 1); return saved; }
                         if (!Serialized.TryGetValue((string)a[0], out saved)) throw new InvalidOperationException("Unknown synthetic USFM");
                         return saved.ToList();
+                    case "NormalizeText": return Normalizer == null ? (string)a[0] : Normalizer((string)a[0]);
+                    case "get_Versification": return Versification();
+                    case "get_IsResource": return false;
+                    case "get_Type": return ProjectType.Standard;
                     case "MakeHistoryPoint": if (LockHeld) throw new InvalidOperationException("History checkpoint invalidates active write locks"); History++; if (OnHistory != null) OnHistory(); return null;
                     case "PutUSFMTokens":
                         Writes++;
@@ -159,6 +168,9 @@ namespace NoteSuggestionsTests
                     case "get_ApplicationVersion": return new Version(9,5,110,1);
                     case "OpenTextWindowFor": if (ThrowNavigation) throw new InvalidOperationException("Injected navigation failure"); if (TrackWindow) WindowReference = (IVerseRef)a[2]; Navigations++; LastNavigationProject = (IReadOnlyProject)a[0]; LastNavigationReference = (IVerseRef)a[2]; NavigationReferences.Add(LastNavigationReference); return null;
                     case "SetReferenceForSyncGroup": if (TrackWindow && (SyncReferenceGroup)a[1] == EditorSyncGroup) WindowReference = (IVerseRef)a[0]; SyncCalls++; LastSyncReference = (IVerseRef)a[0]; LastSyncGroup = (SyncReferenceGroup)a[1]; return null;
+                    case "GetAllProjects": return new List<IProject> { Project }.Concat(OtherProjects).ToList();
+                    case "get_AllResources": return OtherProjects.Cast<IReadOnlyProject>().ToList();
+                    case "get_AllEnhancedResources": return new List<IReadOnlyProject>();
                     default: throw new NotSupportedException("host."+m.Name);
                 }
             };
@@ -168,15 +180,59 @@ namespace NoteSuggestionsTests
         public string Serialize(IEnumerable<IUSFMToken> tokens)
         {
             var list = tokens.ToList();
-            string value = String.Concat(list.Select(t => t is IUSFMTextToken ? ((IUSFMTextToken)t).Text : "\\" + ((IUSFMMarkerToken)t).Marker + (((IUSFMMarkerToken)t).Data.Length > 0 ? " " + ((IUSFMMarkerToken)t).Data : "") + " "));
+            string value = String.Concat(list.Select(t => t is IUSFMTextToken ? ((IUSFMTextToken)t).Text : "\\" + ((IUSFMMarkerToken)t).Marker + (((IUSFMMarkerToken)t).Data.Length > 0 ? " " + ((IUSFMMarkerToken)t).Data : "") +
+                (RealisticUsfm && ((IUSFMMarkerToken)t).Marker.EndsWith("*") ? "" : " ")));
             Serialized[value] = list;
             return value;
         }
+        // Small USFM reader for the realistic mode: verse, chapter and note markers carry data; end markers take no space.
+        public static List<IUSFMToken> Parse(string usfm)
+        {
+            var tokens = new List<IUSFMToken>(); int chapter = 1, verse = 0, i = 0; bool inNote = false;
+            while (i < usfm.Length)
+            {
+                if (usfm[i] != '\\') { int next = usfm.IndexOf('\\', i); if (next < 0) next = usfm.Length; tokens.Add(Text(usfm.Substring(i, next - i), chapter, verse, !inNote, inNote)); i = next; continue; }
+                var m = System.Text.RegularExpressions.Regex.Match(usfm.Substring(i), @"^\\([a-z0-9]+\*?)");
+                string name = m.Groups[1].Value, data = ""; bool end = name.EndsWith("*"); i += m.Length;
+                if (!end && (name == "v" || name == "c" || name == "f"))
+                {
+                    if (i < usfm.Length && usfm[i] == ' ') i++;
+                    int stop = i; while (stop < usfm.Length && usfm[stop] != ' ' && usfm[stop] != '\\') stop++;
+                    data = usfm.Substring(i, stop - i); i = stop;
+                }
+                if (!end && i < usfm.Length && usfm[i] == ' ') i++;
+                if (name == "v") verse = Int32.Parse(data); if (name == "c") chapter = Int32.Parse(data);
+                if (name == "f") inNote = true; if (name == "f*") inNote = false;
+                tokens.Add(Marker(name, data, chapter, verse, name == "v" ? MarkerType.Verse : name == "c" ? MarkerType.Chapter : name == "f" ? MarkerType.Note : end ? MarkerType.End : name == "p" ? MarkerType.Paragraph : MarkerType.Character));
+            }
+            return tokens;
+        }
+        public static IVersification Versification()
+        {
+            return Stub<IVersification>.Create((m, a) => { switch (m.Name) { case "CreateReference": return MakeRef((int)a[1], (int)a[2], (int)a[0]); case "get_Type": return StandardScrVersType.English; default: throw new NotSupportedException(m.Name); } });
+        }
+        // A resource or other project; refuse makes every text read fail as Paratext does for protected resources.
+        public static IProject Source(string name, string verseText, bool refuse, Action read = null)
+        {
+            return Stub<IProject>.Create((m, a) => {
+                switch (m.Name) {
+                    case "get_ID": return "SOURCE-" + name; case "get_ShortName": return name; case "get_IsResource": return true; case "get_Type": return ProjectType.Standard;
+                    case "get_Versification": return Versification();
+                    case "GetUSFMTokens":
+                        if (read != null) read();
+                        if (refuse) throw new InvalidOperationException("Resource text is restricted");
+                        return new List<IUSFMToken> { Marker("v", ((int)a[2]).ToString(), (int)a[1], (int)a[2], MarkerType.Verse), Text(verseText, (int)a[1], (int)a[2], true, false) };
+                    default: throw new NotSupportedException("source." + m.Name);
+                }
+            });
+        }
         public static IVerseRef MakeRef(int chapter, int verse, int book = 1)
         {
-            return Stub<IVerseRef>.Create((m,a) => {
-                switch(m.Name) { case "GetPreviousVerse": return MakeRef(chapter, Math.Max(1, verse - 1), book); case "GetNextVerse": return MakeRef(chapter, verse + 1, book); case "get_BookNum": return book; case "get_BookCode": return book == 1 ? "GEN" : "MAT"; case "get_ChapterNum": return chapter; case "get_VerseNum": return verse; case "get_RepresentsMultipleVerses": return false; case "ToString": return (book == 1 ? "GEN" : "MAT") + " " + chapter + ":" + verse; default: throw new NotSupportedException(m.Name); }
+            IVerseRef self = null;
+            self = Stub<IVerseRef>.Create((m,a) => {
+                switch(m.Name) { case "GetPreviousVerse": return MakeRef(chapter, Math.Max(1, verse - 1), book); case "GetNextVerse": return MakeRef(chapter, verse + 1, book); case "get_BookNum": return book; case "get_BookCode": return book == 1 ? "GEN" : "MAT"; case "get_ChapterNum": return chapter; case "get_VerseNum": return verse; case "get_RepresentsMultipleVerses": return false; case "ChangeVersification": return MakeRef(chapter, verse, book); case "get_AllVerses": return new List<IVerseRef> { self }; case "ToString": return (book == 1 ? "GEN" : "MAT") + " " + chapter + ":" + verse; default: throw new NotSupportedException(m.Name); }
             });
+            return self;
         }
         public static IUSFMTextToken Text(string text, int chapter, int verse, bool scripture, bool note)
         {
@@ -211,6 +267,8 @@ namespace NoteSuggestionsTests
         [STAThread]
         public static int Main(string[] args)
         {
+            // A UI error fails the running check instead of opening a dialog that waits for a click.
+            if (args.Length == 0) Application.SetUnhandledExceptionMode(UnhandledExceptionMode.ThrowException);
             if (args.Length == 2 && args[0] == "--audit")
             {
                 var totals = new Dictionary<string, int>(); int count = 0;
@@ -258,6 +316,10 @@ namespace NoteSuggestionsTests
             TargetingTests.Run(Test);
             QueueInformationTests.Run(Test);
             InlineSuggestionTests.Run(Test);
+            FastReviewTests.Run(Test);
+            FootnoteTests.Run(Test);
+            ReferenceTests.Run(Test);
+            WordingSheetTests.Run(Test);
             foreach(string category in Proposal.Categories)
             {
                 string captured=category;

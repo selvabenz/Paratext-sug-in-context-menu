@@ -249,9 +249,9 @@ namespace ParatextNoteSuggestions
         // Keeps a long label or check box inside its container's width, so narrow windows wrap it instead of clipping.
         public static T Wrap<T>(T label, Control within) where T : Control
         {
-            // Labels wrap at their maximum width; Windows check boxes never wrap by themselves,
-            // so their height is measured for the available width.
-            var box = label as CheckBox;
+            // Labels wrap at their maximum width; Windows check boxes and radio buttons never
+            // wrap by themselves, so their height is measured for the available width.
+            var box = label is CheckBox || label is RadioButton ? (ButtonBase)(Control)label : null;
             label.AutoSize = box == null;
             EventHandler fit = delegate {
                 int width = Math.Max(Scale(120), within.ClientSize.Width - within.Padding.Horizontal - label.Margin.Horizontal - Scale(4));

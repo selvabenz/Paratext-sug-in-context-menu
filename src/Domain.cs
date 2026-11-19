@@ -132,6 +132,14 @@ namespace ParatextNoteSuggestions
             if (original == replacement) throw new InvalidOperationException("The original and replacement are identical; nothing will be changed.");
             if (replacement.Contains("\\") || replacement.IndexOf('\0') >= 0 || Regex.IsMatch(replacement, @"[\r\n]"))
                 throw new InvalidOperationException("This text action cannot insert USFM markers or paragraph breaks. Use the structural review workflow.");
+            var match = Find(parts, region, chapter, firstVerse, lastVerse, original, before, after);
+            match.Replacement = replacement;
+            return match;
+        }
+        // The one occurrence of Original in the region and verses, shared by text edits and footnote placement.
+        public static ExactMatch Find(IEnumerable<TextPart> parts, ContentRegion region, int chapter, int firstVerse, int lastVerse, string original, string before, string after)
+        {
+            if (String.IsNullOrEmpty(original)) throw new InvalidOperationException("No exact Original text is available. Review the source note.");
             var found = new List<ExactMatch>();
             var contexts = new Dictionary<ExactMatch, bool>();
             foreach (var part in parts)
@@ -142,7 +150,7 @@ namespace ParatextNoteSuggestions
                 {
                     if (String.CompareOrdinal(part.Text, i, original, 0, original.Length) != 0) continue;
                     if (!Boundary(part.Text, i) || !Boundary(part.Text, i + original.Length)) continue;
-                    var m = new ExactMatch { TokenIndex = part.TokenIndex, Start = i, Length = original.Length, Original = original, Replacement = replacement };
+                    var m = new ExactMatch { TokenIndex = part.TokenIndex, Start = i, Length = original.Length, Original = original };
                     found.Add(m);
                     // Full available context is required for disambiguation. Never guess an offset convention.
                     bool hasContext = !String.IsNullOrEmpty(before) || !String.IsNullOrEmpty(after);
@@ -170,6 +178,28 @@ namespace ParatextNoteSuggestions
             if (match.Start < 0 || match.Start + match.Length > text.Length || text.Substring(match.Start, match.Length) != match.Original)
                 throw new InvalidOperationException("The matched text changed before replacement.");
             return text.Substring(0, match.Start) + match.Replacement + text.Substring(match.Start + match.Length);
+        }
+    }
+    // Before/after comparison in whole text elements, so a Tamil syllable is never split by a highlight.
+    public static class TextDiff
+    {
+        public static string[] Elements(string text)
+        { var parts = new List<string>(); var e = System.Globalization.StringInfo.GetTextElementEnumerator(text ?? ""); while (e.MoveNext()) parts.Add((string)e.Current); return parts.ToArray(); }
+        // Counts the text elements both strings share at the start and at the end; the rest is the change.
+        public static void Split(string[] a, string[] b, out int prefix, out int suffix)
+        {
+            prefix = 0; suffix = 0;
+            while (prefix < a.Length && prefix < b.Length && a[prefix] == b[prefix]) prefix++;
+            while (suffix < a.Length - prefix && suffix < b.Length - prefix && a[a.Length - 1 - suffix] == b[b.Length - 1 - suffix]) suffix++;
+        }
+        // Character offset and length of the changed part of one side.
+        public static void Changed(string before, string after, bool afterSide, out int start, out int length)
+        {
+            var a = Elements(before); var b = Elements(after); int prefix, suffix;
+            Split(a, b, out prefix, out suffix);
+            var side = afterSide ? b : a;
+            start = String.Concat(side.Take(prefix)).Length;
+            length = String.Concat(side.Skip(prefix).Take(side.Length - prefix - suffix)).Length;
         }
     }
 }
