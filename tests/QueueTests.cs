@@ -78,6 +78,50 @@ namespace NoteSuggestionsTests
                     }
                 }
             });
+            test("the queue opens as a Paratext child window, waits when restored from a saved layout and closes through Paratext", delegate {
+                var f = new Fixture(); string root = Root(), project = Path.Combine(root, "project"); Directory.CreateDirectory(project);
+                new System.Xml.Linq.XElement("ScriptureText", new System.Xml.Linq.XElement("Guid", f.ProjectId)).Save(Path.Combine(project, "Settings.xml"));
+                Paratext.PluginInterfaces.ChildWindowClosingHandler closing = null; string title = null; bool changeProject = true;
+                var parent = Stub<Paratext.PluginInterfaces.IPluginChildWindow>.Create((m, a) => {
+                    switch (m.Name) {
+                        case "get_CurrentState": return f.State;
+                        case "SetTitle": title = (string)a[0]; return null;
+                        case "set_AllowUserToChangeProject": changeProject = (bool)a[0]; return null;
+                        case "add_WindowClosing": closing += (Paratext.PluginInterfaces.ChildWindowClosingHandler)a[0]; return null;
+                        case "remove_WindowClosing": closing -= (Paratext.PluginInterfaces.ChildWindowClosingHandler)a[0]; return null;
+                        default: throw new NotSupportedException(m.Name);
+                    }
+                });
+                Check(f.Plugin.PluginMenuEntries.Count() == 4);
+                using (var restored = new QueueControl(f.Plugin) { ProgressRoot = root, ReportDirectory = project })
+                using (var control = new QueueControl(f.Plugin) { ProgressRoot = root, ReportDirectory = project })
+                using (var duplicate = new QueueControl(f.Plugin) { ProgressRoot = root, ReportDirectory = project }) {
+                    // A layout restored at startup scans nothing until the reviewer asks.
+                    restored.OnAddedToParent(parent, f.WindowHost, restored.GetState());
+                    Check(restored.Queue == null && f.ScannedBooks.Count == 0 && Descendants(restored).OfType<Button>().Single().Name == "openQueue");
+                    control.OnAddedToParent(parent, f.WindowHost, null);
+                    var q = control.Queue;
+                    Check(q != null && !q.TopLevel && q.Parent == control && q.Dock == DockStyle.Fill && q.FormBorderStyle == FormBorderStyle.None);
+                    Check(title == "Note review queue" && !changeProject && q.MinimumSize.IsEmpty && q.AutoScroll);
+                    while (Field<bool>(q, "indexing")) Call(q, "IndexBook");
+                    Check(Field<NoteCandidate>(q, "current") != null);
+                    // One queue per project: a second window explains, and the menu returns to the open one.
+                    duplicate.OnAddedToParent(parent, f.WindowHost, null);
+                    Check(duplicate.Queue == null && Descendants(duplicate).OfType<Label>().Any(l => l.Text.Contains("already open")));
+                    f.Plugin.OpenQueueWindow(f.WindowHost, f.State); Check(f.EmbeddedWindows.Count == 0);
+                    Field<TextBox>(q, "comment").Text = "Docked draft"; q.Reveal();
+                    var e = new System.ComponentModel.CancelEventArgs(); closing(parent, e);
+                    Check(!e.Cancel && q.IsDisposed && f.Writes == 0 && f.Replies.Count == 0);
+                    // The floating window's saved bounds are left alone; only the scroll group is stored.
+                    var layout = System.Xml.Linq.XElement.Load(Directory.GetFiles(root, "layout.xml", SearchOption.AllDirectories).Single());
+                    Check(layout.Attribute("group") != null && layout.Attribute("x") == null);
+                    f.Plugin.OpenQueueWindow(f.WindowHost, f.State);
+                    Check(f.EmbeddedWindows.Count == 1 && f.EmbeddedWindows[0] is QueueControl);
+                    Call(restored, "Start"); Check(restored.Queue != null);
+                    while (Field<bool>(restored.Queue, "indexing")) Call(restored.Queue, "IndexBook");
+                    Check(Field<TextBox>(restored.Queue, "comment").Text == "Docked draft");
+                }
+            });
             test("same-verse reveal hops only the project window before restoring the pinned target in the selected group", delegate {
                 var f = new Fixture(); f.EditorSyncGroup = Paratext.PluginInterfaces.SyncReferenceGroup.B;
                 var service = f.Service(); var item = service.ReadQueueBook(1).Single();

@@ -37,6 +37,8 @@ namespace NoteSuggestionsTests
     public sealed class Fixture
     {
         public IPluginHost Host;
+        public IWindowPluginHost WindowHost;
+        public readonly List<object> EmbeddedWindows = new List<object>();
         public IProject Project;
         public IParatextChildState State;
         public IVerseRef Ref;
@@ -148,8 +150,9 @@ namespace NoteSuggestionsTests
             State = Stub<IParatextChildState>.Create((m, a) => {
                 switch(m.Name) { case "get_Project": return Project; case "get_VerseRef": return TrackWindow && WindowReference != null ? WindowReference : MakeRef(1, ActiveVerse); case "get_SyncReferenceGroup": return EditorSyncGroup; case "get_Selections": return Selections; default: throw new NotSupportedException(m.Name); }
             });
-            Host = Stub<IPluginHost>.Create((m, a) => {
+            Func<MethodInfo, object[], object> hostCalls = (m, a) => {
                 switch(m.Name) {
+                    case "ShowEmbeddedUi": EmbeddedWindows.Add(a[0]); return null;
                     case "get_UserInfo": return Stub<IUserInfo>.Create((um, ua) => um.Name == "get_Name" ? UserName : null);
                     case "get_ActiveWindowState": return State;
                     case "get_AllOpenWindows": return new[] { State };
@@ -158,7 +161,8 @@ namespace NoteSuggestionsTests
                     case "SetReferenceForSyncGroup": if (TrackWindow && (SyncReferenceGroup)a[1] == EditorSyncGroup) WindowReference = (IVerseRef)a[0]; SyncCalls++; LastSyncReference = (IVerseRef)a[0]; LastSyncGroup = (SyncReferenceGroup)a[1]; return null;
                     default: throw new NotSupportedException("host."+m.Name);
                 }
-            });
+            };
+            Host = Stub<IPluginHost>.Create(hostCalls); WindowHost = Stub<IWindowPluginHost>.Create(hostCalls);
         }
         public NoteService Service() { return new NoteService(Plugin, Host, State); }
         public string Serialize(IEnumerable<IUSFMToken> tokens)

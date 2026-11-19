@@ -16,6 +16,14 @@ See [the 19 November navigation fix report](NAVIGATION_FIX_REPORT.md) for why th
 
 See [the 18 November review queue fix report](REVIEW_QUEUE_FIX_REPORT.md) for development changes to progress feedback, completion popups, scrolling groups, non-body targeting and reviewer attribution, including validation limits.
 
+## Docked queue window (development build, 19 November 2026)
+
+**Review note queue…** now opens as a Paratext child window instead of a separate floating form. It has its own tab and can be docked beside the Scripture editor, tabbed, floated or auto-hidden like Paratext's own tools, and Paratext saves its place with the window layout. A queue window restored at startup shows **Open review queue** and scans nothing until you click it. Closing the tab saves the draft and session report as before; one queue per project.
+
+Dock the queue **beside** the project editor, not in the same tab group: each navigation brings the editor's tab to the front, which would hide a queue sharing its tabs.
+
+This uses `IParatextWindowPlugin` and `EmbeddedPluginControl` from the installed `EmbeddedUiPluginInterfaces.dll` (2.0.100.0). Earlier notes in this repository that native docking is unavailable inspected only the other two interface assemblies and are superseded. 227 synthetic checks pass; the docked window still needs acceptance in the live host.
+
 ## Review thousands of notes
 
 Choose **Review note queue…** in the Scripture right-click or Tools menu. The modeless queue scans unresolved AI-QA proposals across the selected project in Scripture order and opens each passage. Read the full discussion in its tab, choose a literal correction, check the review box, then **Apply and next**. **Reject and next** requires a comment. Nothing advances on a timer.

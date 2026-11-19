@@ -22,6 +22,7 @@
     <Reference Include="netstandard" />
     <Reference Include="CorePluginInterfaces"><HintPath>$(ParatextDir)\CorePluginInterfaces.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="PluginInterfaces"><HintPath>$(ParatextDir)\PluginInterfaces.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="EmbeddedUiPluginInterfaces"><HintPath>$(ParatextDir)\EmbeddedUiPluginInterfaces.dll</HintPath><Private>false</Private></Reference>
     <Compile Include="Domain.cs" />
     <Compile Include="NoteService.cs" />
     <Compile Include="QueueTargetHighlight.cs" />
@@ -29,6 +30,7 @@
     <Compile Include="ReviewForm.cs" />
     <Compile Include="ReviewProgress.cs" />
     <Compile Include="QueueForm.cs" />
+    <Compile Include="QueueControl.cs" />
     <Compile Include="QueueScope.cs" />
     <Compile Include="BulkResolveDialog.cs" />
     <Compile Include="ReviewReports.cs" />

@@ -6,7 +6,7 @@ $outputDir = Join-Path $projectRoot 'artifacts\bin'
 $compilerPath = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 $frameworkDir = Split-Path -Parent $compilerPath
 if (!(Test-Path -LiteralPath $compilerPath)) { throw '.NET Framework C# compiler is required (Windows with .NET Framework 4.8).' }
-$refs = @('CorePluginInterfaces.dll', 'PluginInterfaces.dll')
+$refs = @('CorePluginInterfaces.dll', 'PluginInterfaces.dll', 'EmbeddedUiPluginInterfaces.dll')
 foreach ($name in $refs) {
     $path = Join-Path $ParatextDir $name
     if (!(Test-Path -LiteralPath $path)) { throw "Missing installed Paratext interface: $path" }

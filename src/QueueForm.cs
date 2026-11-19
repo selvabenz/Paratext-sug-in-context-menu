@@ -101,6 +101,29 @@ namespace ParatextNoteSuggestions
         int missingRecoveryCount;
         bool paused, busy, populating, indexing = true, blocked;
         bool resourcesDisposed;
+        bool embedded;
+        // Hosts the queue inside a Paratext child window, which then owns size, position and docking.
+        public void Embed(Control parent)
+        {
+            embedded = true; TopLevel = false; FormBorderStyle = FormBorderStyle.None; WindowState = FormWindowState.Normal;
+            // A docked pane can be smaller than the floating window's minimum: scroll instead of clipping.
+            MinimumSize = Size.Empty; AutoScroll = true; AutoScrollMinSize = new Size(430, 560); Dock = DockStyle.Fill;
+            parent.Controls.Add(this); Show();
+            if (indexing && !paused) indexTimer.Start();
+        }
+        // Brings the queue back in front, whether it floats on its own or sits in a Paratext tab.
+        public void Reveal()
+        {
+            if (!embedded) { Show(); WindowState = FormWindowState.Normal; Activate(); return; }
+            var tab = Parent == null ? null : Parent.FindForm();
+            if (tab != null)
+            {
+                // Paratext's docked windows replace Form.Activate with one that selects their tab.
+                var activate = tab.GetType().GetMethod("Activate", Type.EmptyTypes);
+                try { if (activate != null) activate.Invoke(tab, null); } catch (Exception) { }
+            }
+            Focus();
+        }
         public QueueForm(NoteService service, string progressRoot = null, string reportDirectory = null)
         {
             owner = service;
@@ -306,7 +329,7 @@ namespace ParatextNoteSuggestions
             inlineMenu.Items.Add(accept); inlineMenu.Items.Add(decline); inlineMenu.Items.Add(ignore);
             inlineMenu.Items.Add(new ToolStripSeparator());
             inlineMenu.Items.Add("Review source / edit correction in queue", null, delegate {
-                if (IsInlineTarget(item)) { Show(); WindowState = FormWindowState.Normal; Activate(); }
+                if (IsInlineTarget(item)) Reveal();
             });
             inlineMenu.Show(location);
         }
@@ -411,17 +434,30 @@ namespace ParatextNoteSuggestions
         void SaveLayout()
         {
             var bounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
+            string saved = Path.Combine(progress.DirectoryPath, "layout.xml");
+            if (embedded)
+            {
+                // Paratext stores the docked window's place. Keep the floating window's own
+                // saved bounds and remember only the scroll group.
+                var layout = File.Exists(saved) ? XElement.Load(saved) : new XElement("layout");
+                layout.SetAttributeValue("group", owner.NavigationGroup);
+                ReviewProgress.AtomicWrite(saved, layout); return;
+            }
             ReviewProgress.AtomicWrite(Path.Combine(progress.DirectoryPath, "layout.xml"), new XElement("layout", new XAttribute("x", bounds.X), new XAttribute("y", bounds.Y),
                 new XAttribute("width", bounds.Width), new XAttribute("height", bounds.Height), new XAttribute("maximized", WindowState == FormWindowState.Maximized), new XAttribute("group", owner.NavigationGroup)));
         }
         void RestoreLayout()
         {
             string path = Path.Combine(progress.DirectoryPath, "layout.xml"); if (!File.Exists(path)) return;
-            var e = XElement.Load(path); var saved = new Rectangle((int)e.Attribute("x"), (int)e.Attribute("y"), (int)e.Attribute("width"), (int)e.Attribute("height"));
+            var e = XElement.Load(path);
+            SyncReferenceGroup group;
+            // A layout saved by a docked queue alone carries no window bounds.
+            if (e.Attribute("x") == null || e.Attribute("y") == null || e.Attribute("width") == null || e.Attribute("height") == null)
+            { if (Enum.TryParse((string)e.Attribute("group"), out group) && Enum.IsDefined(typeof(SyncReferenceGroup), group)) syncGroup.SelectedItem = group; return; }
+            var saved = new Rectangle((int)e.Attribute("x"), (int)e.Attribute("y"), (int)e.Attribute("width"), (int)e.Attribute("height"));
             var area = Screen.FromRectangle(saved).WorkingArea;
             int width = Math.Min(area.Width, Math.Max(MinimumSize.Width, saved.Width)), height = Math.Min(area.Height, Math.Max(MinimumSize.Height, saved.Height));
-            StartPosition = FormStartPosition.Manual; Bounds = new Rectangle(Math.Max(area.Left, Math.Min(saved.X, area.Right - width)), Math.Max(area.Top, Math.Min(saved.Y, area.Bottom - height)), width, height);
-            SyncReferenceGroup group; if (Enum.TryParse((string)e.Attribute("group"), out group) && Enum.IsDefined(typeof(SyncReferenceGroup), group)) syncGroup.SelectedItem = group;
+            StartPosition = FormStartPosition.Manual; Bounds = new Rectangle(Math.Max(area.Left, Math.Min(saved.X, area.Right - width)), Math.Max(area.Top, Math.Min(saved.Y, area.Bottom - height)), width, height); if (Enum.TryParse((string)e.Attribute("group"), out group) && Enum.IsDefined(typeof(SyncReferenceGroup), group)) syncGroup.SelectedItem = group;
             if ((bool?)e.Attribute("maximized") == true) WindowState = FormWindowState.Maximized;
         }
         void NavigateCurrent()

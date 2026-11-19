@@ -53,7 +53,7 @@ Use **Filters...** to choose books, note status, an exact category or discussion
 
 Choose **Bulk resolve...** to preview filtered unfinished proposals. Select the proposals, read their discussions, enter the shared decision comment and acknowledge that no queue Scripture edit is needed. **Save decisions and resolve** records each selected item as manually reviewed/no-change and writes its decision reply. It does not apply the proposed text or change USFM. Resolve structural corrections manually in Paratext first. Threads with other unfinished proposals stay open. Source changes and comment/resolve failures are reported; use **Recovery** for pending saved decisions.
 
-Navigation settings, report access and retry controls are on **Tools**. Native docking remains unavailable through the installed public API.
+Navigation settings, report access and retry controls are on **Tools**. The queue opens as a Paratext child window that can be docked, tabbed or floated.
 
 Use **Log** for recovery notices, unreadable-discussion counts and full session warnings. Click **ⓘ** for the current review status and saved bulk-skip reason. The information window follows the current proposal and can stay open beside the queue. Neither view changes Scripture or records a decision.
 

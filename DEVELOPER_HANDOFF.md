@@ -29,6 +29,7 @@ No NuGet restore or .NET SDK installation is needed. The build uses Windows' .NE
 | src/NoteService.cs | Live note retrieval, anchor/discussion fingerprints, conflict grouping, permissions/locks, token region mapping, host writes, verification, history and checked session revert. |
 | src/Plugin.cs | Public standalone plugin, fixed context/Tools commands and dynamic secondary popup. |
 | src/ReviewForm.cs | Category filter, source discussion, editable literal correction, explicit deletion, review acknowledgement and supported marker action. |
+| src/QueueControl.cs | The review queue as a docked Paratext child window (`IParatextWindowPlugin`, `EmbeddedPluginControl`). |
 | src/QueueForm.cs | Modeless project-wide QA queue, cooperative book indexing, pinned target navigation, explicit decisions, pause/resume and interrupted-write reconciliation. |
 | src/ReviewReports.cs | Curated comment presets, project-ID checked report location, session journal/report recovery, encoded offline HTML with Unicode-aware diff and modeless embedded viewer. |
 | tests/ReportTests.cs | Presets, locked context capture, reviewer identity, 20/100 sessions, full footnote/intro/cross-chapter context, unchanged rejections, unverified edits, markup escaping and crash/audit recovery. |
