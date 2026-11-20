@@ -25,9 +25,13 @@ namespace ParatextNoteSuggestions
         readonly Dictionary<string, QueueTargetHighlight> highlights = new Dictionary<string, QueueTargetHighlight>();
         public QueueTargetHighlight HighlightFor(IProject project)
         {
-            QueueTargetHighlight source;
-            if (!highlights.TryGetValue(project.ID, out source)) { source = new QueueTargetHighlight(project); highlights.Add(project.ID, source); }
-            return source;
+            // Paratext restores a layout's windows on parallel background threads, each asking here.
+            lock (highlights)
+            {
+                QueueTargetHighlight source;
+                if (!highlights.TryGetValue(project.ID, out source)) { source = new QueueTargetHighlight(project); highlights.Add(project.ID, source); }
+                return source;
+            }
         }
         public IEnumerable<PluginAnnotationMenuEntry> PluginAnnotationMenuEntries
         { get { yield return new PluginAnnotationMenuEntry("Highlight queued note target", HighlightFor); } }
