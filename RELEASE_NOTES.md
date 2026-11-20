@@ -1,5 +1,8 @@
 ﻿# Unreleased
 
+- **Fix: "Paratext plugin encountered an error" at startup, leaving a window (often a resource) empty.** Paratext restores a layout's windows on parallel threads and each asked the plugin for its highlight source at the same time; the unguarded lookup could fail. It is now locked.
+- **Faster queue applies.** Each apply made two forced history points, and each commits the whole project (about 3.3 seconds per apply on a project with a 60 MB notes file). The queue now takes one before its first write, at most one every 10 minutes after that, and one when it pauses, ends a pass or closes. Context-menu applies are unchanged. The Log tab shows a `Timing` line for each fast decision. The remaining wait is Paratext rewriting the reviewer's notes file for the reply and the resolution; see Speed in [FAST_REVIEW.md](FAST_REVIEW.md). 298 synthetic checks pass.
+
 - **Note reply for a rejection or a manual fix** now says that the plugin changed no text and records the verse the reviewer left: `Verse text:` for a rejection or an unchanged verse, `Verse before:` / `Verse after:` for a fix made by hand in Paratext. The note's own wording is labelled `Note original:` / `Note suggested:`. Replies for applied corrections are unchanged, and a reply posted in the earlier format is still recognised. 297 synthetic checks pass.
 
 # 0.4.7-preview - 20 November 2026

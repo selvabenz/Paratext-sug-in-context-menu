@@ -87,8 +87,15 @@ The comments that each key will post are shown on the tab before you press.
 ## What one key press guarantees
 
 - The apply key writes exactly the before/after that is on screen. If the passage changed after it was shown, nothing is written, the reason is shown, and the note stays.
-- Everything the normal Apply checks still holds: edit permission, history point before the lock, write lock, fresh note, one exact match in the right region, no USFM markers or line breaks, no English, alternatives or ellipses, saved USFM verified.
+- Everything the normal Apply checks still holds: edit permission, write lock, fresh note, one exact match in the right region, no USFM markers or line breaks, no English, alternatives or ellipses, saved USFM verified.
 - A refusal before anything is written never pauses the queue. A failure after the write was submitted stops as before and goes to Recovery.
+
+## Speed
+
+After each fast decision the Log tab has a `Timing` line: how long the previous note's reply, this decision and opening the next note took.
+
+- **Project history.** A history point commits the whole project and takes seconds when the notes file is large. The queue takes one before its first write, one before a write when the last is more than 10 minutes old, and one when it pauses, reaches the end of a pass or closes. The session report still records the before and after of every edit. Edits made from the context menu, outside the queue, keep a history point before and after each one.
+- **Note replies.** Paratext keeps all of one user's notes in one file (`Notes_<user name>.xml`) and rewrites the whole file for each reply and again for each resolution. The plugin cannot change that. If the AI-QA notes were created under the reviewer's own user name, that file is large and every decision waits for two full rewrites (about 2.5 seconds each for a 60 MB file).
 
 ## What is written on the note
 

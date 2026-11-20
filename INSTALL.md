@@ -91,7 +91,7 @@ Local session audit entries survive a crash. On a later stop/report request, int
 
 ## Recovery and removal
 
-**Revert last plugin edit…** restores the previous chapter/book only when the entire saved scope still matches the plugin's expected post-edit USFM. It refuses to overwrite later changes. The one-entry-per-project recovery record exists only in memory until Paratext exits. History points are requested before and after writes; native Ctrl+Z support is not claimed.
+**Revert last plugin edit…** restores the previous chapter/book only when the entire saved scope still matches the plugin's expected post-edit USFM. It refuses to overwrite later changes. The one-entry-per-project recovery record exists only in memory until Paratext exits. History points are requested before and after each write made from the context menu; the review queue shares them between its writes (before its first write, then at most every 10 minutes, and when it pauses, ends a pass or closes); native Ctrl+Z support is not claimed.
 
 To remove the plugin, close Paratext and run `powershell -NoProfile -ExecutionPolicy Bypass -File .\uninstall.ps1` as administrator. This removes only the named plugin file. Uninstalling does not revert project edits.
 

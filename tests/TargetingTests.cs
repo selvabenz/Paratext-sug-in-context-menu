@@ -100,11 +100,25 @@ namespace NoteSuggestionsTests
                     s.ForQueueItem(c).PreviewBulkCorrection(c, "Possible typo", true);
                     Refuse(() => s.ForQueueItem(c).Apply(c, "பழைய", "புதிய", ContentRegion.Body, true, false, null, null, true));
                     Check(f.Writes == 0);
+                    // A new queue takes its own first history point, where the fixture changes the note.
                     f.OnHistory = () => { f.NoteText += " Changed discussion"; };
-                    Refuse(() => s.ForQueueItem(c).Apply(c, "பழைய", "புதிய", captured, true, false, null, null, true));
+                    Refuse(() => f.Service().ForQueueItem(c).Apply(c, "பழைய", "புதிய", captured, true, false, null, null, true));
                     Check(f.Writes == 0);
                 });
             }
+            test("a queue shares history points between its writes; a single apply keeps its own two", delegate {
+                var f = Target(ContentRegion.Footnote); var s = f.Service(); var c = s.ReadQueueBook(1).Single();
+                s.ForQueueItem(c).Apply(c, "பழைய", "புதிய", ContentRegion.Footnote, true);
+                Check(f.Writes == 1 && f.History == 1); // one point before the queue's first write
+                c = s.ReadQueueBook(1).Single();
+                s.ForQueueItem(c).Apply(c, "புதிய", "பழைய", ContentRegion.Footnote, true);
+                Check(f.Writes == 2 && f.History == 1); // none for a second write inside the interval
+                s.HistoryCheckpoint(); Check(f.History == 2); // pause, end and close commit the queue's writes
+                s.HistoryCheckpoint(); Check(f.History == 2);
+                var single = Target(ContentRegion.Footnote); var direct = single.Service(); var n = direct.ReadCandidates().Single();
+                direct.Apply(n, "பழைய", "புதிய", ContentRegion.Footnote, true);
+                Check(single.Writes == 1 && single.History == 2);
+            });
             test("queue records actual non-body region and resolves after verified edit", delegate {
                 var f = Target(ContentRegion.Footnote);
                 string root = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "qt", Guid.NewGuid().ToString("N").Substring(0, 8));

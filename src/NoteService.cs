@@ -43,6 +43,10 @@ namespace ParatextNoteSuggestions
         readonly string capturedContext;
         readonly bool queueMode;
         static readonly Dictionary<string, RecoveryRecord> Recovery = new Dictionary<string, RecoveryRecord>();
+        sealed class HistoryClock { public bool Taken, Unsaved; public DateTime Last; }
+        public static readonly TimeSpan HistoryInterval = TimeSpan.FromMinutes(10);
+        // Shared by a queue's service and the per-item services made from it.
+        readonly HistoryClock history;
         public string ProjectName { get { return project.ShortName; } }
         public string ProjectId { get { return projectId; } }
         public string Reviewer { get { return host.UserInfo == null ? "Unknown Paratext user" : host.UserInfo.Name; } }
@@ -50,7 +54,7 @@ namespace ParatextNoteSuggestions
         public SyncReferenceGroup NavigationGroup { get; set; }
         public NoteService(IPluginObject pluginObject, IPluginHost pluginHost, IParatextChildState state)
         {
-            plugin = pluginObject; host = pluginHost; project = state.Project; projectId = project.ID;
+            plugin = pluginObject; host = pluginHost; project = state.Project; projectId = project.ID; history = new HistoryClock();
             capturedContext = ContextKey(state);
             NavigationGroup = state.SyncReferenceGroup;
             book = state.VerseRef.BookNum; chapter = state.VerseRef.ChapterNum;
@@ -64,7 +68,7 @@ namespace ParatextNoteSuggestions
         // A queue pins the project and passage instead of following the active reference window.
         NoteService(NoteService owner, int targetBook, int targetChapter, int start, int end)
         {
-            plugin = owner.plugin; host = owner.host; project = owner.project; projectId = owner.projectId;
+            plugin = owner.plugin; host = owner.host; project = owner.project; projectId = owner.projectId; history = owner.history;
             queueMode = true; book = targetBook; chapter = targetChapter; firstVerse = start; lastVerse = end;
         }
         public IEnumerable<int> QueueBooks() { return project.AvailableBooks.Select(b => b.Number).OrderBy(b => b); }
@@ -734,7 +738,7 @@ namespace ParatextNoteSuggestions
             if (problem != null) throw new InvalidOperationException(problem + " Nothing was written.");
             if (!project.CanEdit(plugin, candidate.Book, candidate.Chapter)) throw new InvalidOperationException("You do not have editing permission for this chapter.");
             // History checkpoints can release outstanding locks: take it before requesting ours.
-            project.MakeHistoryPoint("Before Note Suggestions marker correction", true);
+            HistoryBeforeWrite("Before Note Suggestions marker correction");
             bool revoked = false;
             using (var writeLock = project.RequestWriteLock(plugin, delegate { revoked = true; }, candidate.Book, candidate.Chapter))
             {
@@ -764,7 +768,7 @@ namespace ParatextNoteSuggestions
             if (!project.CanEdit(plugin, candidate.Book, scope)) throw new InvalidOperationException("You do not have editing permission for this passage.");
             // In the real host, history checkpoints can release outstanding editor/plugin locks.
             // Take the checkpoint before requesting our lock, then re-read all data under the new lock.
-            project.MakeHistoryPoint("Before Note Suggestions correction", true);
+            HistoryBeforeWrite("Before Note Suggestions correction");
             bool revoked = false;
             using (var writeLock = project.RequestWriteLock(plugin, delegate { revoked = true; }, candidate.Book, scope))
             {
@@ -810,7 +814,7 @@ namespace ParatextNoteSuggestions
             if (!a.Success || !b.Success || a.Groups[2].Value != b.Groups[2].Value || a.Groups[1].Value == b.Groups[1].Value)
                 throw new InvalidOperationException("Only an exact heading/chapter-label marker rename with unchanged label text is supported in this preview. This structural proposal requires manual review in Paratext.");
             if (!project.CanEdit(plugin, candidate.Book, candidate.Chapter)) throw new InvalidOperationException("You do not have editing permission for this chapter.");
-            project.MakeHistoryPoint("Before Note Suggestions marker correction", true);
+            HistoryBeforeWrite("Before Note Suggestions marker correction");
             bool revoked = false;
             using (var writeLock = project.RequestWriteLock(plugin, delegate { revoked = true; }, candidate.Book, candidate.Chapter))
             {
@@ -931,7 +935,7 @@ namespace ParatextNoteSuggestions
             ValidateFootnoteText(plan.Text);
             if (!project.CanEdit(plugin, candidate.Book, candidate.Chapter)) throw new InvalidOperationException("You do not have editing permission for this chapter.");
             // History checkpoints can release outstanding locks: take it before requesting ours.
-            project.MakeHistoryPoint("Before Note Suggestions footnote", true);
+            HistoryBeforeWrite("Before Note Suggestions footnote");
             bool revoked = false;
             using (var writeLock = project.RequestWriteLock(plugin, delegate { revoked = true; }, candidate.Book, candidate.Chapter))
             {
@@ -954,10 +958,28 @@ namespace ParatextNoteSuggestions
             }
             HistoryAfterWrite("Note Suggestions footnote");
         }
+        // A forced history point commits the whole project, and with a large notes file each one takes seconds.
+        // A queue therefore shares them between its writes: one before its first write, one before a write when
+        // the last is older than HistoryInterval, and one when it pauses, ends or closes. The plugin's own
+        // record of every edit (before and after) does not depend on them.
+        void HistoryBeforeWrite(string message)
+        {
+            if (queueMode && history.Taken && DateTime.UtcNow - history.Last < HistoryInterval) return;
+            project.MakeHistoryPoint(message, true);
+            history.Taken = true; history.Last = DateTime.UtcNow; history.Unsaved = false;
+        }
         void HistoryAfterWrite(string message)
         {
+            if (queueMode) { history.Unsaved = true; return; }
             try { project.MakeHistoryPoint(message, true); }
             catch (Exception ex) { ReportFailure(new InvalidOperationException("The USFM write was verified, but the post-edit history checkpoint failed.", ex)); }
+        }
+        // Commits the queue's writes made since its last history point. Never call it while a write lock is held.
+        public void HistoryCheckpoint()
+        {
+            if (!history.Unsaved) return;
+            try { project.MakeHistoryPoint("Note Suggestions review queue", true); history.Taken = true; history.Last = DateTime.UtcNow; history.Unsaved = false; }
+            catch (Exception ex) { ReportFailure(new InvalidOperationException("The queue's writes were verified, but their history checkpoint failed.", ex)); }
         }
         public void ReportFailure(Exception error)
         {

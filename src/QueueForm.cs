@@ -281,6 +281,7 @@ namespace ParatextNoteSuggestions
                     FlushHeld(); SaveDraft(); paused = !paused; pause.Text = paused ? "Resume" : "Pause";
                     if (indexing) { if (paused) indexTimer.Stop(); else indexTimer.Start(); }
                     else if (!paused && current == null) { position = -1; Next(); }
+                    if (paused) owner.HistoryCheckpoint();
                     string report = paused ? GenerateReports("Paused", true) : null;
                     status.Text = paused ? "Paused. Position and draft saved." + (report == null ? " No new decisions to report." : " HTML report saved. Use View latest report.") : "Waiting for your decision. You can browse reference windows freely.";
                     EnableActions();
@@ -312,7 +313,7 @@ namespace ParatextNoteSuggestions
             Shown += delegate { if (indexing && !paused) indexTimer.Start(); };
             FormClosing += delegate(object sender, FormClosingEventArgs e) {
                 if (busy) { e.Cancel = true; return; }
-                try { FlushHeld(); SaveDraft(); SaveLayout(); GenerateReports("Closed", true); } catch (Exception ex) { e.Cancel = true; Fail(ex); }
+                try { FlushHeld(); SaveDraft(); SaveLayout(); owner.HistoryCheckpoint(); GenerateReports("Closed", true); } catch (Exception ex) { e.Cancel = true; Fail(ex); }
             };
             owner.SetInlineMenuHandler(ShowInlineMenu);
             fastButton.Click += delegate { Guard(ChooseFastSettings); }; fastSettings.Click += delegate { Guard(ChooseFastSettings); };
@@ -684,6 +685,7 @@ namespace ParatextNoteSuggestions
             if (current == null)
             {
                 FlushHeld();
+                owner.HistoryCheckpoint();
                 owner.HighlightTarget(null);
                 passageReference.Text = "";
                 heading.Text = owner.ProjectName + " - " + completed + " / " + items.Count + " reviewed";
@@ -812,7 +814,10 @@ namespace ParatextNoteSuggestions
                     if (outcome == "Completed manually" && !manual.Enabled) return;
                 }
                 else if (choice.Id != current.StableId || !FastCan(choice.Footnote != null ? "Footnote" : outcome)) return;
+                // Where a fast key press spent its time, for the Log tab.
+                var clock = System.Diagnostics.Stopwatch.StartNew(); bool hadHeld = held != null;
                 FlushHeld();
+                long heldMs = clock.ElapsedMilliseconds;
                 busy = true; EnableActions(); Activity("Saving review decision", 0, 0);
                 // Set once Scripture was submitted or the decision saved; earlier refusals changed nothing.
                 bool committed = false;
@@ -871,8 +876,12 @@ namespace ParatextNoteSuggestions
                         ReviewSession.WriteEntry(progress.DirectoryPath, reconciled.SessionId, reconciled);
                     }
                     completed++;
+                    long savedMs = clock.ElapsedMilliseconds;
                     if (choice != null && fast.HoldLastReply) { held = current; Next(); }
                     else FinishResolution();
+                    if (choice != null)
+                        FastLog("Timing, " + outcome + " at " + record.Reference + ": " + (hadHeld ? "previous note's reply " + Seconds(heldMs) + ", " : "") + "this decision " + Seconds(savedMs - heldMs) +
+                            ", " + (held != null && held.StableId == record.Id ? "next note " : "reply and next note ") + Seconds(clock.ElapsedMilliseconds - savedMs) + ".");
                     ActivityComplete(outcome + " decision saved for " + record.Reference + ". Reviewer: " + record.Reviewer + ". Note status: " +
                         (held != null && held.StableId == record.Id ? "reply held until your next action; " + FastKeys.Label(fast.KeyMap[FastAction.Undo]) + " undoes it" : progress.Get(record.Id).Resolution) + ".");
                 }
@@ -885,6 +894,7 @@ namespace ParatextNoteSuggestions
                 finally { busy = false; EnableActions(); }
             });
         }
+        static string Seconds(long milliseconds) { return (milliseconds / 1000.0).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " s"; }
         void FinishResolution()
         {
             FinishRecord(current); Next();
