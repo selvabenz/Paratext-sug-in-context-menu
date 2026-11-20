@@ -90,6 +90,16 @@ The comments that each key will post are shown on the tab before you press.
 - Everything the normal Apply checks still holds: edit permission, history point before the lock, write lock, fresh note, one exact match in the right region, no USFM markers or line breaks, no English, alternatives or ellipses, saved USFM verified.
 - A refusal before anything is written never pauses the queue. A failure after the write was submitted stops as before and goes to Recovery.
 
+## What is written on the note
+
+Every decision posts one reply on the Paratext note, under your Paratext user name, with the decision, date, category and comment.
+
+- **Applied**: `Original:` and `Replacement:`, the words the plugin changed.
+- **Rejected**: `Result: Suggestion rejected. The plugin changed no text…` and `Verse text:`, the verse as it stays.
+- **Fixed by hand**: `Result: Fixed by hand in Paratext…` with `Verse before:` (when the note opened) and `Verse after:` (when you pressed the key). If nothing changed, `Result: No change made…` and `Verse text:`.
+
+For a rejection or a manual fix the note's own wording is labelled `Note original:` / `Note suggested:`, because the plugin did not write it. A passage longer than 600 characters (a whole heading chapter or introduction) is left to the session report.
+
 ## Undo
 
 By default the reply and note resolution for a fast decision are posted at your next action (next decision, skip, browse, pause, scope change or closing). Until then **F11** undoes the decision completely:

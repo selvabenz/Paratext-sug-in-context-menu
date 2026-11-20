@@ -263,6 +263,44 @@ namespace NoteSuggestionsTests
                     }
                 }
             });
+            test("the note reply for a rejection or a manual fix says the plugin changed nothing and records the verse text the reviewer left", delegate {
+                Func<Fixture, string> reply = fx => String.Join("\r\n", fx.Replies[0].Contents.Select(p => String.Concat(p.Spans.Select(s => s.Text))));
+                var f = F.TwoBooks(); using (var q = QueueTests.Queue(f, F.Root())) {
+                    F.Enable(q); F.Key(q, Keys.F6); F.Key(q, Keys.F9);
+                    string text = reply(f);
+                    F.Check(f.Replies.Count == 1 && f.Writes == 0 && text.Contains("Decision: Rejected") && text.Contains("Reviewer: " + f.UserName) && text.Contains("Result: Suggestion rejected. The plugin changed no text"), text);
+                    F.Check(text.Contains("Verse text: \\v 3 முன் பழைய பின்") && text.Contains("Note original: பழைய") && text.Contains("Note suggested: புதிய") && !text.Contains("\r\nReplacement:"), text);
+                }
+                var g = F.TwoBooks(); using (var q = QueueTests.Queue(g, F.Root())) {
+                    F.Enable(q); g.Tokens[1] = Fixture.Text("முன் கையால் திருத்தியது பின்", 1, 3, true, false); F.Key(q, Keys.F7); F.Key(q, Keys.F9);
+                    string text = reply(g);
+                    F.Check(g.Replies.Count == 1 && g.Writes == 0 && text.Contains("Decision: Completed manually") && text.Contains("Result: Fixed by hand in Paratext. The plugin did not apply the note's suggestion"), text);
+                    F.Check(text.Contains("Verse before: \\v 3 முன் பழைய பின்") && text.Contains("Verse after: \\v 3 முன் கையால் திருத்தியது பின்"), text);
+                }
+                var h = F.TwoBooks(); using (var q = QueueTests.Queue(h, F.Root())) {
+                    F.Enable(q); F.Key(q, Keys.F7); F.Key(q, Keys.F7); F.Key(q, Keys.F9);
+                    string text = reply(h);
+                    F.Check(h.Replies.Count == 1 && text.Contains("Result: No change made. The reviewer confirmed the text as it stands.") && text.Contains("Verse text: \\v 3 முன் பழைய பின்") && !text.Contains("Verse before:"), text);
+                }
+                var applied = F.TwoBooks(); using (var q = QueueTests.Queue(applied, F.Root())) {
+                    F.Enable(q); F.Key(q, Keys.F5); F.Key(q, Keys.F9);
+                    string text = reply(applied); F.Check(text.Contains("Original: பழைய") && text.Contains("Replacement: புதிய") && !text.Contains("Result:"), "an applied reply is unchanged");
+                }
+            });
+            test("a reply posted in the earlier format is recognised and never posted twice; a long passage is left to the report", delegate {
+                var f = F.TwoBooks(); using (var q = QueueTests.Queue(f, F.Root())) {
+                    F.Enable(q); var item = F.Current(q); F.Key(q, Keys.F6);
+                    F.Check(f.Replies.Count == 0, "reply held");
+                    f.Replies.Add(Fixture.Comment(NoteService.LegacyReply(F.Saved(q, item))));
+                    F.Key(q, Keys.F9);
+                    F.Check(f.Replies.Count == 1 && f.Resolved && F.Saved(q, item).Resolution == "Resolved", "old reply accepted, note resolved, no second reply");
+                }
+                var record = new ReviewRecord { Id = "x", Outcome = "Rejected", Original = "அ", Replacement = "ஆ", BeforeContext = new string('அ', 700), AfterContext = new string('அ', 700) };
+                string text = NoteService.DecisionReply(record);
+                F.Check(text.Contains("Verse text: long passage; see the review report.") && text.Length < 500 && !text.Contains("\n\n") && !System.Text.RegularExpressions.Regex.IsMatch(text, "(?<!\r)\n"));
+                record.AfterContext = "\\v 3 ஒன்று\r\n\\q இரண்டு\n\\q மூன்று"; record.BeforeContext = record.AfterContext;
+                F.Check(NoteService.DecisionReply(record).Contains("Verse text: \\v 3 ஒன்று \\q இரண்டு \\q மூன்று\r\nComment:"), "a passage of several lines stays on one reply line");
+            });
             test("a note that warned its Original was missing is armed only because the live verse now has it exactly once", delegate {
                 string note = Fixture.Qa("Punctuation", "பழைய", "புதிய", "No").Replace("\r\nOriginal:", "\r\nLocation: whole verse — flagged text not found verbatim in the current text\r\nOriginal:");
                 var f = F.TwoBooks(note);

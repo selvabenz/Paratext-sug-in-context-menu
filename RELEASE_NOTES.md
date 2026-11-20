@@ -1,4 +1,8 @@
-﻿# 0.4.7-preview - 20 November 2026
+﻿# Unreleased
+
+- **Note reply for a rejection or a manual fix** now says that the plugin changed no text and records the verse the reviewer left: `Verse text:` for a rejection or an unchanged verse, `Verse before:` / `Verse after:` for a fix made by hand in Paratext. The note's own wording is labelled `Note original:` / `Note suggested:`. Replies for applied corrections are unchanged, and a reply posted in the earlier format is still recognised. 297 synthetic checks pass.
+
+# 0.4.7-preview - 20 November 2026
 
 - **Fast review tab** in the review queue: one key per note (F5 apply, F6 reject, F7 fixed by hand, F8 footnote, F9 skip, PgUp/PgDn browse, F11 undo), with comments filled in automatically by category and outcome. The apply key writes exactly the before/after shown; a refusal writes nothing and leaves the note in place. Function keys by default; single letters are opt-in.
 - **Undo** of the last fast decision while its note reply is held. The reply is posted at the next action.

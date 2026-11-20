@@ -401,14 +401,34 @@ namespace ParatextNoteSuggestions
         }
         static bool IsDecisionReply(IComment comment)
         { return Regex.IsMatch(Plain(comment), @"\A\[NoteSuggestions decision [A-F0-9]{64}\]\r?\n"); }
-        public static string DecisionReply(ReviewRecord record)
+        static string ReplyHead(ReviewRecord record)
         {
             return "[NoteSuggestions decision " + NoteParser.Hash(record.Id + "|" + record.Outcome + "|" + record.DecisionUtc + "|" + record.Comment) + "]\r\n" +
                 "Proposal: " + record.Id + "\r\nDecision: " + record.Outcome + "\r\nReviewer: " + record.Reviewer +
-                "\r\nUTC: " + record.DecisionUtc + "\r\nCategory: " + record.Category +
-                "\r\nOriginal: " + record.Original + "\r\nReplacement: " + record.Replacement +
-                "\r\nComment: " + (String.IsNullOrWhiteSpace(record.Comment) ? "Accepted as suggested." : record.Comment);
+                "\r\nUTC: " + record.DecisionUtc + "\r\nCategory: " + record.Category;
         }
+        static string ReplyComment(ReviewRecord record) { return "\r\nComment: " + (String.IsNullOrWhiteSpace(record.Comment) ? "Accepted as suggested." : record.Comment); }
+        // The reply as written before rejections and manual fixes recorded the verse text. Still recognised, so an
+        // earlier reply is never posted a second time.
+        public static string LegacyReply(ReviewRecord record)
+        { return ReplyHead(record) + "\r\nOriginal: " + record.Original + "\r\nReplacement: " + record.Replacement + ReplyComment(record); }
+        // The reply is rebuilt from the saved record to find it again, so it uses nothing but the record.
+        public static string DecisionReply(ReviewRecord record)
+        {
+            if (record.Outcome != "Rejected" && record.Outcome != "Completed manually") return LegacyReply(record);
+            // The plugin wrote no Scripture for these: say so, and record the verse text the reviewer left.
+            Func<string, string> line = text => Regex.Replace((text ?? "").Trim(), @"\s*[\r\n]+\s*", " ");
+            string before = line(record.BeforeContext), after = line(record.AfterContext);
+            bool known = after.Length > 0 && after.Length <= 600 && before.Length <= 600, changed = record.Outcome == "Completed manually" && before.Length > 0 && before != after;
+            string result = record.Outcome == "Rejected" ? "Suggestion rejected. The plugin changed no text; the verse stays as it was." :
+                changed ? "Fixed by hand in Paratext. The plugin did not apply the note's suggestion; the reviewer's own edit is shown below." :
+                "No change made. The reviewer confirmed the text as it stands.";
+            string verse = !known ? "\r\nVerse text: long passage; see the review report." :
+                changed ? "\r\nVerse before: " + before + "\r\nVerse after: " + after : "\r\nVerse text: " + after;
+            return ReplyHead(record) + "\r\nNote original: " + record.Original + "\r\nNote suggested: " + record.Replacement + "\r\nResult: " + result + verse + ReplyComment(record);
+        }
+        static bool HasReply(IProjectNote note, ReviewRecord record)
+        { string reply = DecisionReply(record), legacy = LegacyReply(record); return note.Comments.Any(c => { string text = Plain(c); return text == reply || text == legacy; }); }
         static string DiscussionKey(IProjectNote note)
         { return NoteParser.Hash(String.Join("|", note.Comments.Where(c => !IsDecisionReply(c)).Select(c => c.Created.ToString("O") + ":" + (c.Author == null ? "" : c.Author.Name) + ":" + Plain(c)))); }
         static string SourceId(IProjectNote note, IComment comment)
@@ -436,7 +456,7 @@ namespace ParatextNoteSuggestions
                 {
                     if (!decision.Completed || decision.Id != candidate.StableId) throw new InvalidOperationException("A matching saved decision is required.");
                     string reply = DecisionReply(decision);
-                    if (!note.Comments.Any(c => Plain(c) == reply))
+                    if (!HasReply(note, decision))
                     {
                         if (host.UserInfo == null || String.IsNullOrWhiteSpace(decision.Reviewer) || Reviewer != decision.Reviewer)
                             throw new InvalidOperationException("Sign in as the original reviewer (" + decision.Reviewer + ") to save this reply. The saved decision keeps its original attribution; do not repeat the Scripture edit.");
@@ -454,7 +474,7 @@ namespace ParatextNoteSuggestions
                     foreach (string id in sourceIds)
                     {
                         var peer = records(id);
-                        if (peer == null || !note.Comments.Any(c => Plain(c) == DecisionReply(peer)))
+                        if (peer == null || !HasReply(note, peer))
                             throw new InvalidOperationException("A proposal is missing its saved decision reply. Inspect the source note before resolving; local history alone cannot resolve this thread.");
                     }
                 if (note.IsResolved) return true;
