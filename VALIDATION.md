@@ -141,3 +141,9 @@ Not yet tested inside Paratext. Run in disposable NSTest (`scripts/prepare-test-
 8. Note in the Log tab any marker note refused as "not found": Paratext's own USFM text (line breaks, spacing after markers) may differ from what a note quotes. That is a safe refusal, but its frequency decides whether more work is worthwhile.
 
 Before the first real book, run Send/Receive or back up IRVTam. Then work 3JN, JUD, OBA in that order. After each book, compare the HTML report and the saved SFM against the backup.
+
+### Host result, 20 November 2026 (disposable NSTest, Paratext 9.5.110.1, queue docked)
+
+Eight fast applies by the reviewer, each compared with the saved `01GENNSTest.SFM` afterwards: a plain correction (v1), footnote text located in the footnote (v3), a composed footnote after the Original (v5), Tamil with an English remark (v8), the second of two alternatives chosen with F4 (v9), a `\ft …\f*` marker change (v10), heading text located in the heading with whole-chapter evidence (v11) and a `\xt …\x*` marker change (v12). Every changed line is exactly the recorded after-text, no other line changed, and each of the eight notes has exactly one decision reply and is resolved. The ambiguous v2 and the partial Suggested line at v13 were not armed. All 89 IRVTam Scripture and notes files were byte-for-byte unchanged.
+
+The first run showed that in a short docked window the after box and the refusal reason were squeezed out of sight; the tab now scrolls and shows the reason under the key band. Not yet exercised in the host: F11 undo, and a saved copy of the Log tab (it is not written to disk).
