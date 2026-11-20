@@ -1,4 +1,4 @@
-# Fast review (development build)
+# Fast review
 
 Fast review lets one reviewer go through the remaining AI-QA notes with one key press per note. It is a tab in the existing **Review note queue**. You decide every note. Nothing is applied on a timer, and every safety check of the normal queue still applies.
 
@@ -162,7 +162,7 @@ While the probe runs, every key that reaches the queue and every navigation's ke
 
 ## Limits
 
-- Not yet tested inside Paratext. Key handling in the docked window, the timing guard for keys pressed during a decision, focus after navigation, resource access, the footnote round trip, and undo of a footnote are proven only with synthetic doubles. If Paratext numbers the reparsed and the saved tokens differently, undo of a footnote will be refused; that is safe, and Paratext history still restores it. Use the host probe and the NSTest checklist in [VALIDATION.md](VALIDATION.md) before any real book.
+- Tested inside Paratext 9.5.110.1 on a disposable project only (see VALIDATION.md): apply, other wording, footnote, skip and undo keys in the docked window, marker changes and the footnote round trip. The reject and fixed-by-hand keys, the timing guard for keys pressed during a decision, resource access, wording sheets and undo of a footnote are proven only with synthetic doubles. If Paratext numbers the reparsed and the saved tokens differently, undo of a footnote will be refused; that is safe, and Paratext history still restores it. Use the host probe and the NSTest checklist in [VALIDATION.md](VALIDATION.md) before any real book.
 - Marker changes, wording read out of a longer Suggested line, and text found in another place than the note names are also proven only with synthetic doubles. In particular, Paratext's own USFM text (line breaks, spacing after markers) may differ from what a note quotes; such a note is refused, not guessed.
 - Deletions, structural instructions without exact USFM, and edits spanning a footnote call or line break are not applied by a key.
 - Global hotkeys are not used. To come back after editing in Paratext, click the Fast review band.

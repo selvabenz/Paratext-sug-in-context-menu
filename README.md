@@ -6,7 +6,7 @@ Target: **Paratext 9.5.110.1 on Windows**.
 
 ## Status
 
-**0.4.1-preview** is a compiled Windows plugin built against the Paratext 9.5 plugin interfaces (2.0.100.0), targeting .NET Framework 4.8 and tested with Paratext 9.5.110.1. 228 synthetic checks pass, with real-host tests for loading, exact Scripture/footnote writes, ambiguity refusal, and revert in a disposable project. Export/Send-Receive acceptance remains pending; releases are marked as previews.
+**0.4.7-preview** is a compiled Windows plugin built against the Paratext 9.5 plugin interfaces (2.0.100.0), targeting .NET Framework 4.8 and tested with Paratext 9.5.110.1. 295 synthetic checks pass, with real-host tests for loading, exact Scripture/footnote writes, ambiguity refusal, and revert in a disposable project. Export/Send-Receive acceptance remains pending; releases are marked as previews.
 
 Get **ParatextNoteSuggestions-&lt;version&gt;-Setup.exe** from [GitHub Releases](https://github.com/selvabenz/Paratext-sug-in-context-menu/releases), close Paratext and run it. Read [INSTALL.md](INSTALL.md), [VALIDATION.md](VALIDATION.md), and the [developer handoff](DEVELOPER_HANDOFF.md) before using it.
 
@@ -24,7 +24,7 @@ Every plugin window now follows Paratext's own window design. Colours, toolbar i
 - Dialogs place their commands at the bottom right, as Paratext does, and wrap them onto a second row when narrow. Long explanations and check boxes wrap. List/detail windows show the two side by side when wide and one above the other when narrow; details scroll rather than being squeezed.
 - The in-editor suggestion label uses Paratext's light-green background and green text, and the right-click menu shows theme icons. HTML session reports use the same palette.
 
-228 synthetic checks pass, including one that opens every window at its minimum size and checks the theme, buttons and that nothing is clipped. Rendered screenshots are written to `artifacts/bin/theme-*.png`. Live-host acceptance in Paratext's Bright and custom themes and at 150/200% display scaling is still required.
+295 synthetic checks pass, including one that opens every window at its minimum size and checks the theme, buttons and that nothing is clipped. Rendered screenshots are written to `artifacts/bin/theme-*.png`. Live-host acceptance in Paratext's Bright and custom themes and at 150/200% display scaling is still required.
 
 ## Docked queue window (development build, 19 November 2026)
 
