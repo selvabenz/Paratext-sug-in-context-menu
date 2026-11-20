@@ -106,6 +106,8 @@ namespace ParatextNoteSuggestions
         readonly ToolStripButton fastButton = ParatextTheme.ToolButton("Fast review...", null, "One key per note: turn fast review on or off and choose its settings");
         readonly DiffBox fastBefore = new DiffBox(), fastAfter = new DiffBox();
         readonly KeyPanel fastKeys = new KeyPanel { Dock = DockStyle.Fill, Height = ParatextTheme.Scale(28) };
+        // The fast tab scrolls when the docked window is short, so the before/after boxes and the reason never shrink out of sight.
+        readonly Panel fastScroll = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
         readonly Label fastBand = new Label { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Tag = ParatextTheme.KeepColour },
             fastSource = new Label(), fastComments = new Label(), fastReason = new Label { Tag = ParatextTheme.KeepColour }, fastLegend = new Label { Tag = ParatextTheme.KeepColour };
         readonly TextBox fastComment = new TextBox { Dock = DockStyle.Top };
@@ -895,16 +897,18 @@ namespace ParatextNoteSuggestions
             Func<string, Label> caption = text => new Label { Text = text, AutoSize = true, Margin = new Padding(0, ParatextTheme.Scale(4), 0, ParatextTheme.Scale(1)) };
             fastKeys.Controls.Add(fastBand); fastKeys.Margin = new Padding(0, 0, 0, ParatextTheme.Scale(2));
             add(fastKeys, SizeType.Absolute, ParatextTheme.Scale(30));
+            // Why the apply key is not armed comes first, directly under the band.
+            fastReason.ForeColor = ParatextTheme.ColorOf("text_error");
+            add(ParatextTheme.Wrap(fastReason, layout), SizeType.AutoSize, 0);
             add(caption("Now"), SizeType.AutoSize, 0); add(fastBefore, SizeType.Percent, 32);
             add(caption("After the apply key"), SizeType.AutoSize, 0); add(fastAfter, SizeType.Percent, 32);
-            fastReason.ForeColor = ParatextTheme.ColorOf("text_error");
-            foreach (var label in new[] { fastSource, fastReason, fastComments }) add(ParatextTheme.Wrap(label, layout), SizeType.AutoSize, 0);
+            foreach (var label in new[] { fastSource, fastComments }) add(ParatextTheme.Wrap(label, layout), SizeType.AutoSize, 0);
             add(caption("Your comment instead of the automatic one (F2 to type, Esc to return to keys)"), SizeType.AutoSize, 0); add(fastComment, SizeType.AutoSize, 0);
             add(caption("Reference texts (read-only)"), SizeType.AutoSize, 0); add(referenceBox, SizeType.Percent, 36);
             fastLegend.ForeColor = ParatextTheme.ColorOf("text_dimmed"); add(ParatextTheme.Wrap(fastLegend, layout), SizeType.AutoSize, 0);
             // A click anywhere outside the boxes gives the keyboard back to the queue.
-            foreach (Control c in new Control[] { layout, fastBand, fastSource, fastReason, fastComments, fastLegend }) c.MouseDown += delegate { FocusKeys(); };
-            fastTab.Controls.Add(layout);
+            foreach (Control c in new Control[] { fastScroll, layout, fastBand, fastSource, fastReason, fastComments, fastLegend }) c.MouseDown += delegate { FocusKeys(); };
+            fastScroll.Controls.Add(layout); fastTab.Controls.Add(fastScroll);
         }
         Font tamilFont;
         readonly List<Font> fonts = new List<Font>();
@@ -913,6 +917,8 @@ namespace ParatextNoteSuggestions
             fast = settings; if (save) fast.Save(progress.DirectoryPath);
             if (tamilFont == null || tamilFont.Name != fast.TamilFont || tamilFont.Size != fast.TamilSize) { tamilFont = new Font(fast.TamilFont, fast.TamilSize); fonts.Add(tamilFont); }
             fastBefore.Font = fastAfter.Font = referenceBox.Font = fastComment.Font = tamilFont;
+            // Room for about three lines in each of the before, after and reference boxes, plus the labels.
+            fastScroll.AutoScrollMinSize = new Size(0, ParatextTheme.Scale(330) + tamilFont.Height * 13);
             fastButton.Checked = fast.Enabled; fastLegend.Text = FastKeys.Legend(fast);
             unreadableReferences.Clear();
             if (fast.Enabled) { tabs.SelectedTab = fastTab; RefreshReferences(); RefreshFast(); FocusKeys(); }

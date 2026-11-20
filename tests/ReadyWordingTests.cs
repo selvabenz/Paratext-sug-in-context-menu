@@ -246,6 +246,23 @@ namespace NoteSuggestionsTests
                 F.Check(s.LocateRegion(n, "முன்", ContentRegion.Heading) == ContentRegion.Heading, "a heading note that quotes verse words never falls back to the verse text");
                 F.Check(s.LocateRegion(n, "குறிப்பு", ContentRegion.Heading) == ContentRegion.Footnote);
             });
+            test("in a short docked window the reason, the before box and the after box stay readable, with the rest reached by scrolling", delegate {
+                foreach (bool armed in new[] { true, false }) {
+                    var f = F.TwoBooks(); if (!armed) { f.Tokens[1] = Fixture.Text("பழைய சொல் மற்றும் பழைய சொல்.", 1, 3, true, false); f.AnchorText = ""; }
+                    using (var q = QueueTests.Queue(f, F.Root())) {
+                        q.Size = new System.Drawing.Size(470, 500); F.Show(q); F.Enable(q); Application.DoEvents();
+                        var before = F.Field<DiffBox>(q, "fastBefore"); var after = F.Field<DiffBox>(q, "fastAfter"); var reason = F.Field<Label>(q, "fastReason"); var scroll = F.Field<Panel>(q, "fastScroll");
+                        int lines = 2 * before.Font.Height;
+                        F.Check(before.Height >= lines && after.Height >= lines, "boxes hold two lines: " + before.Height + "/" + after.Height);
+                        var view = scroll.RectangleToScreen(scroll.ClientRectangle);
+                        Func<Control, bool> seen = c => view.Contains(c.RectangleToScreen(c.ClientRectangle));
+                        F.Check(seen(before) && (armed || seen(reason)), "before box and reason are in view without scrolling");
+                        F.Check((F.Field<FastChoice>(q, "fastChoice") != null) == armed && (armed || reason.Text.Contains("more than once")) && scroll.VerticalScroll.Visible, "scrolls instead of shrinking");
+                        using (var bitmap = new System.Drawing.Bitmap(q.Width, q.Height))
+                        { q.DrawToBitmap(bitmap, new System.Drawing.Rectangle(0, 0, q.Width, q.Height)); bitmap.Save(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "fast-short-" + (armed ? "armed" : "refused") + ".png")); }
+                    }
+                }
+            });
             test("a note that warned its Original was missing is armed only because the live verse now has it exactly once", delegate {
                 string note = Fixture.Qa("Punctuation", "பழைய", "புதிய", "No").Replace("\r\nOriginal:", "\r\nLocation: whole verse — flagged text not found verbatim in the current text\r\nOriginal:");
                 var f = F.TwoBooks(note);

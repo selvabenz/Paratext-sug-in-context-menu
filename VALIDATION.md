@@ -112,7 +112,7 @@ The queue now enlarges only the passage reference. Bulk previews/execution retai
 
 ## Fast review - development build, 19 November 2026
 
-**294 synthetic checks, zero failed**, with warnings-as-errors compilation against the installed Paratext 9.5.110.1 interfaces. The 66 fast review checks cover:
+**295 synthetic checks, zero failed**, with warnings-as-errors compilation against the installed Paratext 9.5.110.1 interfaces. The 67 fast review checks cover:
 - fast apply bound to the displayed preview, and refusal when the passage changed after it was shown;
 - no arming for English instructions or ellipses;
 - keys ignored while paused or after a decision; key repeat; comment-box typing;

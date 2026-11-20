@@ -7,7 +7,8 @@
 - **Reference texts** (ESV, Tamil BSI) beside the note when Paratext allows plugin access; otherwise opened as Paratext windows. **Host probe** on the Tools tab.
 - **More notes arm the apply key**, always with the note's own Tamil: an English remark in brackets is dropped, `A / B` and `A (or B)` alternatives are offered one at a time (F4 shows the next), and a phrase is taken from `follow the ESV: …`, `follow the reference text (…)`, `or read …` or `(reviewer: '…')`. Examples after `e.g.`, footnote wording, headings to add and partial text are never taken. A note that warned its Original was missing is armed only if the live verse now has it exactly once.
 - **Headings, footnotes and cross-references**: words a note quotes from a heading, footnote or cross-reference without saying so are found there (never the other way round). A note that gives exact USFM on both sides (footnote or cross-reference text, a word beside a footnote call, heading text or level, poetry indent, removing or adding a whole footnote) is applied as one replacement, validated by Paratext's reparse; numbering, note boundaries and everything outside the note's verses must be unchanged, and a Suggested line that gives only the changed part is refused.
-- 294 synthetic checks pass. Not yet tested inside Paratext; see [FAST_REVIEW.md](FAST_REVIEW.md) and the checklist in [VALIDATION.md](VALIDATION.md).
+- The Fast review tab scrolls in a short docked window instead of shrinking the before/after boxes out of sight, and shows the reason F5 is not armed directly under the key band.
+- 295 synthetic checks pass. Not yet tested inside Paratext; see [FAST_REVIEW.md](FAST_REVIEW.md) and the checklist in [VALIDATION.md](VALIDATION.md).
 
 # 0.4.1-preview - 19 November 2026
 
