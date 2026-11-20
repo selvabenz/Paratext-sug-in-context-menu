@@ -62,8 +62,8 @@ namespace NoteSuggestionsTests
                     Check(f.Writes == 1 && Saved(q, first).AfterContext.Contains("முன் புதிய இடை பின்"));
                 }
             });
-            test("fast review arms nothing for alternatives, English or ellipsis wording", delegate {
-                foreach (string suggestion in new[] { "புதிய / வேறு", "consider a change", "புதிய..." }) {
+            test("fast review arms nothing for English instructions or ellipsis wording", delegate {
+                foreach (string suggestion in new[] { "consider a change", "புதிய...", "புதிய … வேறு (reviewer to decide)" }) {
                     var f = TwoBooks(Fixture.Qa("Grammar", "பழைய", suggestion, "No")); using (var q = QueueTests.Queue(f, Root())) {
                         Enable(q); Check(Field<FastChoice>(q, "fastChoice") == null);
                         Key(q, Keys.F5); Check(f.Writes == 0 && Current(q).Book == 1);
@@ -137,7 +137,7 @@ namespace NoteSuggestionsTests
                 }
             });
             test("later round leaves notes without ready-to-paste Tamil open and untouched, but never hides recovery work", delegate {
-                var f = TwoBooks(Fixture.Qa("Source comparison", "பழைய", "புதிய / வேறு", "Yes")); string root = Root();
+                var f = TwoBooks(Fixture.Qa("Source comparison", "பழைய", "Keep, or add a footnote noting that some copies lack புதிய", "Yes")); string root = Root();
                 using (var q = QueueTests.Queue(f, root)) {
                     Enable(q, NoLiteralMode.LaterRound); Call(q, "ChangeScope", new QueueScope()); while (Field<bool>(q, "indexing")) Call(q, "IndexBook");
                     Check(Current(q).Book == 40 && Field<Label>(q, "heading").Text.Contains("1 left for a later round"), "Genesis note left for later");

@@ -61,7 +61,7 @@ The selected **Bulk resolve... > Preview Scripture edits...** workflow also supp
 
 ## Fast review (development build)
 
-The queue's **Fast review** tab lets you review with one key per note: F5 apply the change shown, F6 reject, F7 fixed by hand in Paratext, F8 add a footnote from a template, F9 skip, F11 undo the last decision. Comments are filled in automatically by category and outcome. The apply key writes exactly the before/after on screen and keeps every check of the normal Apply. A refusal writes nothing and leaves the note in place.
+The queue's **Fast review** tab lets you review with one key per note: F5 apply the change shown, F6 reject, F7 fixed by hand in Paratext, F8 add a footnote from a template, F9 skip, F11 undo the last decision. Comments are filled in automatically by category and outcome. The apply key writes exactly the before/after on screen and keeps every check of the normal Apply. A refusal writes nothing and leaves the note in place. The apply key is armed with the note's own Tamil only, including Tamil followed by an English remark, alternatives (F4 steps through them), and exact marker changes to footnotes, cross-references, headings and poetry lines.
 
 For notes without ready-to-paste Tamil you choose: stop for a manual edit, leave them for a later round, or use an imported wording sheet, labelled as not from the note. Reference texts (ESV, Tamil BSI) are shown when Paratext allows plugins to read them; otherwise they open as Paratext windows that follow the scroll group. Not yet tested inside Paratext. See [FAST_REVIEW.md](FAST_REVIEW.md).
 

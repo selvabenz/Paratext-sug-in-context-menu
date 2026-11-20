@@ -119,7 +119,7 @@ namespace ParatextNoteSuggestions
         FastChoice fastChoice;
         // The last fast decision's note reply and resolution wait for the next action, so it can be undone completely.
         NoteCandidate held;
-        int presetOverride;
+        int presetOverride, wordingIndex;
         bool manualWarned, probing, navigationQuiet, navigationHadFocus;
         NoteCandidate current;
         int position = -1, completed;
@@ -735,8 +735,19 @@ namespace ParatextNoteSuggestions
             if (current.IsResolved && !ResolutionPending()) status.Text = "Paratext resolved note - inspection only. Navigation never repeats its decision or Scripture edit.";
             var skipped = progress.Skipped().FirstOrDefault(r => r.Id == current.StableId);
             if (skipped != null) status.Text += "\r\nSaved bulk skip: " + skipped.Evidence;
+            if (!blocked && !current.IsResolved && current.Proposal.Region != ContentRegion.Structure)
+            {
+                // Notes often quote a heading or footnote without saying so; point the reviewer at the right region.
+                try
+                {
+                    var found = owner.ForQueueItem(current).LocateRegion(current, current.Proposal.Original, current.Proposal.Region);
+                    if (found != current.Proposal.Region) status.Text += "\r\nThe Original is in the " + Place(found) + " of this passage, not the " + Place(current.Proposal.Region) + ": choose " + found + " as the region to apply it from this tab.";
+                }
+                catch { }
+            }
+            else if (!blocked && !current.IsResolved && current.Proposal.Fragment) status.Text += "\r\nThis marker change can be previewed and applied from the Fast review tab.";
             SaveDraft(); EnableActions();
-            presetOverride = 0; manualWarned = false; fastComment.Clear();
+            presetOverride = 0; wordingIndex = 0; manualWarned = false; fastComment.Clear();
             if (fast.Enabled) RefreshReferences();
             RefreshFast();
             NavigateCurrent();
@@ -825,6 +836,7 @@ namespace ParatextNoteSuggestions
                         };
                         var service = owner.ForQueueItem(current);
                         if (choice != null && choice.Footnote != null) service.InsertFootnote(current, choice.Footnote, beforeSubmit, evidence);
+                        else if (choice != null && choice.Fragment) service.ApplyFragment(current, choice.Original, choice.Replacement, beforeSubmit, evidence);
                         else if (choice != null) service.Apply(current, choice.Original, choice.Replacement, choice.Region, true, false, beforeSubmit, evidence);
                         else if (current.Proposal.Route == ProposalRoute.Structure)
                         {
@@ -919,7 +931,8 @@ namespace ParatextNoteSuggestions
                 }
         }
         static bool ReadyToPaste(NoteCandidate item)
-        { return !item.Unreadable && item.Proposal.ReviewedBulkLiteral && item.Proposal.Route != ProposalRoute.Structure && item.Proposal.Route != ProposalRoute.NoChange; }
+        { return !item.Unreadable && (item.Proposal.Paste.Count > 0 || item.Proposal.Fragment); }
+        static string Place(ContentRegion region) { return region == ContentRegion.CrossReference ? "cross-reference" : region == ContentRegion.Body ? "verse text" : region.ToString().ToLowerInvariant(); }
         // Later round: notes without ready-to-paste Tamil stay open and untouched in this run. Recovery work is never skipped.
         bool LaterRound(NoteCandidate item, ReviewRecord record)
         {
@@ -943,12 +956,23 @@ namespace ParatextNoteSuggestions
             { fastReason.Text = record != null && record.Completed ? "Already decided: " + record.Outcome + ". Browse on, or use Recovery for pending work." : status.Text; ShowFast(); return; }
             string orig = original.Text, rep = replacement.Text;
             var reg = region.SelectedItem == null ? current.Proposal.Region : (ContentRegion)region.SelectedItem;
-            bool edited = orig != current.Proposal.Original || rep != current.Proposal.Suggested || reg != current.Proposal.Region;
-            string source;
+            var p = current.Proposal;
+            bool edited = orig != p.Original || rep != p.Suggested || reg != p.Region;
+            string source; bool fragment = false, derived = false;
             var prepared = fast.NoLiteral == NoLiteralMode.PreparedWording && !edited ? wording.Get(current.StableId) : null;
             if (deletion.Checked) { fastReason.Text = "Deleting text is reviewed in the Review tab."; ShowFast(); return; }
-            if (current.Proposal.Route == ProposalRoute.Structure) { fastReason.Text = "Structural proposal: review it in the Review tab, or fix it in Paratext and press the fixed-by-hand key."; ShowFast(); return; }
-            if (edited) source = "your wording from the Review tab";
+            if (p.Route == ProposalRoute.Structure || p.Region == ContentRegion.Structure)
+            {
+                // A marker change is written only as the note gives it, never from edited fields.
+                if (!p.Fragment || edited)
+                {
+                    fastReason.Text = p.Fragment ? "A marker change uses the note's exact text. Restore the note's wording in the Review tab, or fix it in Paratext and press the fixed-by-hand key." :
+                        "The note gives no exact USFM to write for this structural change. Fix it in Paratext and press the fixed-by-hand key, reject it, or skip.";
+                    ShowFast(); return;
+                }
+                fragment = true; source = "the note's own marker change (footnote, cross-reference, heading or line marker)";
+            }
+            else if (edited) source = "your wording from the Review tab";
             else if (prepared != null)
             {
                 string why = null;
@@ -958,13 +982,32 @@ namespace ParatextNoteSuggestions
                 orig = prepared.Original; rep = prepared.Replacement; reg = prepared.Region;
                 source = "PREPARED WORDING - not from the note (" + prepared.Sheet + "): " + prepared.Rationale;
             }
-            else if (ReadyToPaste(current)) source = "the note's own Suggested text";
+            else if (!current.Unreadable && p.Paste.Count > 0)
+            {
+                int index = Math.Min(wordingIndex, p.Paste.Count - 1);
+                rep = p.Paste[index]; derived = p.PasteSource.Length > 0;
+                source = (derived ? p.PasteSource : "the note's own Suggested text") +
+                    (p.Paste.Count > 1 ? " - wording " + (index + 1) + " of " + p.Paste.Count + "; " + FastKeys.Label(fast.KeyMap[FastAction.Wording]) + " shows the next" : "");
+            }
             else { fastReason.Text = "The note gives no ready-to-paste Tamil. Edit in Paratext and press the fixed-by-hand key, reject it, add a footnote, or skip."; ShowFast(); return; }
             try
             {
-                var preview = owner.ForQueueItem(current).PreviewApply(current, orig, rep, reg);
-                fastChoice = new FastChoice { Id = current.StableId, Original = orig, Replacement = rep, Region = reg, Preview = preview, Source = source, OwnWording = !edited && prepared == null };
-                fastSource.Text = "Wording: " + source;
+                var service = owner.ForQueueItem(current); PassageEvidence preview;
+                if (fragment) preview = service.PreviewFragment(current, orig, rep, out reg);
+                else
+                {
+                    if (!edited && prepared == null)
+                    {
+                        // Notes often quote a heading or footnote without saying so.
+                        var found = service.LocateRegion(current, orig, reg);
+                        if (found != reg) { source += ". Found in the " + Place(found) + ", not the " + Place(reg) + " the note names"; reg = found; derived = true; }
+                    }
+                    preview = service.PreviewApply(current, orig, rep, reg);
+                }
+                fastChoice = new FastChoice { Id = current.StableId, Original = orig, Replacement = rep, Region = reg, Preview = preview, Source = source, OwnWording = !edited && prepared == null, Fragment = fragment, Derived = derived };
+                fastSource.Text = "Wording: " + source +
+                    (p.Conflict.Length > 0 ? "\r\nAnother open note suggests different wording for the same words: " + p.Conflict : "") +
+                    (p.AnchorWarning ? "\r\nThe note said its Original was not found when it was written; it is found exactly once now." : "");
             }
             catch (InvalidOperationException ex) { fastReason.Text = "Apply is not available: " + ex.Message; }
             ShowFast();
@@ -979,7 +1022,7 @@ namespace ParatextNoteSuggestions
                 fastAfter.ShowChange(fastChoice.Preview.After, fastChoice.Preview.Before, true, ParatextTheme.ColorOf("background_light_green"));
             }
             else { fastBefore.ShowChange(fast.Enabled && current != null ? loadedContext : "", null, false, Color.Empty); fastAfter.ShowChange(fast.Enabled && current != null ? "No change is armed for the apply key." : "", null, true, Color.Empty); }
-            fastSource.ForeColor = ParatextTheme.ColorOf(fastChoice != null && !fastChoice.OwnWording ? "text_warning" : "text_normal");
+            fastSource.ForeColor = ParatextTheme.ColorOf(fastChoice != null && (!fastChoice.OwnWording || fastChoice.Derived || current.Proposal.Conflict.Length > 0) ? "text_warning" : "text_normal");
             fastComments.Text = !fast.Enabled || current == null ? "" :
                 "Comment posted by " + FastKeys.Label(fast.KeyMap[FastAction.Apply]) + ": " + CommentText(FastComment("Applied")) + "\r\n" +
                 FastKeys.Label(fast.KeyMap[FastAction.Reject]) + ": " + CommentText(FastComment("Rejected")) + "\r\n" +
@@ -1078,6 +1121,9 @@ namespace ParatextNoteSuggestions
                 case FastAction.Next: Guard(delegate { Browse(1); }); break;
                 case FastAction.Return: if (back.Enabled) Guard(NavigateCurrent); break;
                 case FastAction.Preset: presetOverride = preset; ShowFast(); break;
+                case FastAction.Wording:
+                    if (current == null || current.Proposal.Paste.Count < 2) { status.Text = "This note offers one wording only."; break; }
+                    wordingIndex = (wordingIndex + 1) % current.Proposal.Paste.Count; Guard(RefreshFast); break;
                 case FastAction.EditComment: fastComment.Focus(); fastComment.SelectAll(); UpdateBand(); break;
                 case FastAction.BackToKeys: FocusKeys(); ShowFast(); break;
                 case FastAction.Undo: Guard(Undo); break;

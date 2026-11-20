@@ -194,7 +194,7 @@ namespace NoteSuggestionsTests
                 if (usfm[i] != '\\') { int next = usfm.IndexOf('\\', i); if (next < 0) next = usfm.Length; tokens.Add(Text(usfm.Substring(i, next - i), chapter, verse, !inNote, inNote)); i = next; continue; }
                 var m = System.Text.RegularExpressions.Regex.Match(usfm.Substring(i), @"^\\([a-z0-9]+\*?)");
                 string name = m.Groups[1].Value, data = ""; bool end = name.EndsWith("*"); i += m.Length;
-                if (!end && (name == "v" || name == "c" || name == "f"))
+                if (!end && (name == "v" || name == "c" || name == "f" || name == "x"))
                 {
                     if (i < usfm.Length && usfm[i] == ' ') i++;
                     int stop = i; while (stop < usfm.Length && usfm[stop] != ' ' && usfm[stop] != '\\') stop++;
@@ -202,8 +202,9 @@ namespace NoteSuggestionsTests
                 }
                 if (!end && i < usfm.Length && usfm[i] == ' ') i++;
                 if (name == "v") verse = Int32.Parse(data); if (name == "c") chapter = Int32.Parse(data);
-                if (name == "f") inNote = true; if (name == "f*") inNote = false;
-                tokens.Add(Marker(name, data, chapter, verse, name == "v" ? MarkerType.Verse : name == "c" ? MarkerType.Chapter : name == "f" ? MarkerType.Note : end ? MarkerType.End : name == "p" ? MarkerType.Paragraph : MarkerType.Character));
+                if (name == "f" || name == "x") inNote = true; if (name == "f*" || name == "x*") inNote = false;
+                bool paragraph = System.Text.RegularExpressions.Regex.IsMatch(name, @"^(?:p|m|b|s[1-4]?|ms[1-3]?|cl|r|d|q[1-4]?|li[1-4]?)$");
+                tokens.Add(Marker(name, data, chapter, verse, name == "v" ? MarkerType.Verse : name == "c" ? MarkerType.Chapter : name == "f" || name == "x" ? MarkerType.Note : end ? MarkerType.End : paragraph ? MarkerType.Paragraph : MarkerType.Character));
             }
             return tokens;
         }
@@ -318,6 +319,7 @@ namespace NoteSuggestionsTests
             InlineSuggestionTests.Run(Test);
             FastReviewTests.Run(Test);
             FootnoteTests.Run(Test);
+            ReadyWordingTests.Run(Test);
             ReferenceTests.Run(Test);
             WordingSheetTests.Run(Test);
             foreach(string category in Proposal.Categories)

@@ -112,9 +112,9 @@ The queue now enlarges only the passage reference. Bulk previews/execution retai
 
 ## Fast review - development build, 19 November 2026
 
-**269 synthetic checks, zero failed**, with warnings-as-errors compilation against the installed Paratext 9.5.110.1 interfaces. The 41 new checks cover:
+**294 synthetic checks, zero failed**, with warnings-as-errors compilation against the installed Paratext 9.5.110.1 interfaces. The 66 fast review checks cover:
 - fast apply bound to the displayed preview, and refusal when the passage changed after it was shown;
-- no arming for alternatives, English or ellipses;
+- no arming for English instructions or ellipses;
 - keys ignored while paused or after a decision; key repeat; comment-box typing;
 - automatic and overridden comments; fixed-by-hand with and without a saved change;
 - scroll-group navigation without window activation;
@@ -123,9 +123,13 @@ The queue now enlarges only the passage reference. Bulk previews/execution retai
 - footnote insertion (exact USFM, end of verse, refusals for markup/Latin/duplicates/round-trip failure/word split/ambiguity/locks, unverified save, decision record);
 - template validation and the composer's text sources;
 - reference reading, refusal caching and non-persistence;
-- wording export, import refusals, labelled prepared wording and stale fallback.
+- wording export, import refusals, labelled prepared wording and stale fallback;
+- wording read from a Suggested line (remark dropped, alternatives separated, named replacement) and the phrasings that are never taken (examples, footnote wording, headings, words to add, a remark between two pieces of Tamil, a line-break slash, bare punctuation);
+- bulk eligibility unchanged by derived wording;
+- marker changes written as exact USFM (footnote and cross-reference text, a word beside a footnote, footnote removal and addition, poetry marker, heading above the verse with whole-chapter evidence) and refused (numbering and book markers, instructions, partial Suggested lines, a change in the previous verse, split words, a wrong note origin, unbalanced notes or character styles, ambiguity, stale text, round-trip failure, locks, normalization);
+- fast apply and undo of marker and heading changes, refusal after the chapter changed, the other-wording key, conflicting notes, and text located in a heading or footnote but never moved into verse text.
 
-Not yet tested inside Paratext. Run in disposable NSTest (`scripts/prepare-test-project.ps1` now adds an instruction-only Source comparison note, a Textual-basis note, two notes in one verse, an existing variant footnote and a poetry verse):
+Not yet tested inside Paratext. Run in disposable NSTest (`scripts/prepare-test-project.ps1` now adds an instruction-only Source comparison note, a Textual-basis note, two notes in one verse, an existing variant footnote, a poetry verse, and in verses 8-13 a remark note, an alternatives note, a heading quoted without being named, a footnote and a cross-reference marker change, and a partial Suggested line that must not be armed):
 
 1. **Tools > Host probe**, with the queue docked and again floating, with ESVUS11 and TAOVBSI windows open and text selected in each. Save the Log tab.
 2. With the editor in the queue's scroll group: about 30 presses over every key. The Log tab must show no "LOST the keyboard" line. A refused apply must stay on its note.
@@ -133,5 +137,7 @@ Not yet tested inside Paratext. Run in disposable NSTest (`scripts/prepare-test-
 4. F8 after a word and at the end of a verse. Compare the saved SFM byte for byte with the expected `\f + \fr C:V \ft …\f*`. Check that an identical footnote is refused and that F11 restores the file.
 5. Reference boxes, or Open reference windows, follow Next; check the label at a Psalm title.
 6. Wording sheet with one valid entry and one of each refused kind.
+7. Verses 8-13: v8 offers புதிய வழியில் without "(for reviewer)"; v9 offers இதனால், F4 shows அதினால்; v11 changes the heading only; v10 and v12 change only the text inside `\ft …\f*` and `\xt …\x*`; v13 is not armed. After each apply compare the saved SFM byte for byte with the preview, and undo one of each with F11.
+8. Note in the Log tab any marker note refused as "not found": Paratext's own USFM text (line breaks, spacing after markers) may differ from what a note quotes. That is a safe refusal, but its frequency decides whether more work is worthwhile.
 
 Before the first real book, run Send/Receive or back up IRVTam. Then work 3JN, JUD, OBA in that order. After each book, compare the HTML report and the saved SFM against the backup.

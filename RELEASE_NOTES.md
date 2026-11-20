@@ -2,10 +2,12 @@
 
 - **Fast review tab** in the review queue: one key per note (F5 apply, F6 reject, F7 fixed by hand, F8 footnote, F9 skip, PgUp/PgDn browse, F11 undo), with comments filled in automatically by category and outcome. The apply key writes exactly the before/after shown; a refusal writes nothing and leaves the note in place. Function keys by default; single letters are opt-in.
 - **Undo** of the last fast decision while its note reply is held. The reply is posted at the next action.
-- **Footnote composer** with editable templates (சில பிரதிகளில் … இவ்வாறு உள்ளது / காணப்படவில்லை and the project's existing forms). It inserts one ` + r C:V t …*` after the note's Original or at the verse end, validated by Paratext's reparse.
+- **Footnote composer** with editable templates (சில பிரதிகளில் … இவ்வாறு உள்ளது / காணப்படவில்லை and the project's existing forms). It inserts one `\f + \fr C:V \ft …\f*` after the note's Original or at the verse end, validated by Paratext's reparse.
 - **Notes without ready-to-paste Tamil**: stop for a manual edit, leave for a later round, or use an imported wording sheet labelled as not from the note.
 - **Reference texts** (ESV, Tamil BSI) beside the note when Paratext allows plugin access; otherwise opened as Paratext windows. **Host probe** on the Tools tab.
-- 269 synthetic checks pass. Not yet tested inside Paratext; see [FAST_REVIEW.md](FAST_REVIEW.md) and the checklist in [VALIDATION.md](VALIDATION.md).
+- **More notes arm the apply key**, always with the note's own Tamil: an English remark in brackets is dropped, `A / B` and `A (or B)` alternatives are offered one at a time (F4 shows the next), and a phrase is taken from `follow the ESV: …`, `follow the reference text (…)`, `or read …` or `(reviewer: '…')`. Examples after `e.g.`, footnote wording, headings to add and partial text are never taken. A note that warned its Original was missing is armed only if the live verse now has it exactly once.
+- **Headings, footnotes and cross-references**: words a note quotes from a heading, footnote or cross-reference without saying so are found there (never the other way round). A note that gives exact USFM on both sides (footnote or cross-reference text, a word beside a footnote call, heading text or level, poetry indent, removing or adding a whole footnote) is applied as one replacement, validated by Paratext's reparse; numbering, note boundaries and everything outside the note's verses must be unchanged, and a Suggested line that gives only the changed part is refused.
+- 294 synthetic checks pass. Not yet tested inside Paratext; see [FAST_REVIEW.md](FAST_REVIEW.md) and the checklist in [VALIDATION.md](VALIDATION.md).
 
 # 0.4.1-preview - 19 November 2026
 

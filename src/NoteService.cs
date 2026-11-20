@@ -356,7 +356,7 @@ namespace ParatextNoteSuggestions
                 {
                     var proposal = NoteParser.Parse(source.Text);
                     if (source.Index != comments.FindLastIndex(c => !IsDecisionReply(c))) {
-                        proposal.ReviewedBulkLiteral = false;
+                        proposal.ReviewedBulkLiteral = false; proposal.Paste.Clear(); proposal.Fragment = false;
                         if (proposal.Route == ProposalRoute.Apply) proposal.Route = ProposalRoute.Review;
                     }
                     var candidate = Candidate(note, proposal, threadKey + ":" + source.Index, String.Join("\r\n\r\n--- Comment ---\r\n\r\n", comments.Select(Plain)));
@@ -381,6 +381,7 @@ namespace ParatextNoteSuggestions
             foreach (var group in result.Where(c => c.Proposal.Original.Length > 0).GroupBy(c => c.Book + ":" + c.Chapter + ":" + c.FirstVerse + ":" + c.LastVerse + ":" + c.Proposal.Region + ":" + c.Proposal.Original))
                 if (group.Select(c => c.Proposal.Suggested).Distinct(StringComparer.Ordinal).Count() > 1)
                     foreach (var c in group) {
+                        c.Proposal.Conflict = String.Join(" | ", group.Select(o => o.Proposal.Suggested).Where(s => s != c.Proposal.Suggested).Distinct(StringComparer.Ordinal));
                         c.Proposal.ReviewedBulkLiteral = false;
                         if (c.Proposal.Route == ProposalRoute.Apply) c.Proposal.Route = ProposalRoute.Review;
                     }
@@ -593,6 +594,148 @@ namespace ParatextNoteSuggestions
             return new PassageEvidence { Before = before, After = Passage(tokens, candidate, region), Scope = EvidenceScope(region) };
         }
         public string Normalize(string text) { return project.NormalizeText(text); }
+        // Read-only: where the Original is, when the note names a place that does not have it. A note often says
+        // nothing about a heading or footnote it quotes. Another place is used only when it holds the one occurrence.
+        public ContentRegion LocateRegion(NoteCandidate candidate, string original, ContentRegion expected)
+        {
+            if (String.IsNullOrEmpty(original) || expected == ContentRegion.Introduction || expected == ContentRegion.Structure || candidate.CrossChapter || candidate.Book != candidate.EndBook) return expected;
+            var parts = TokenMapping.Parts(project.GetUSFMTokens(candidate.Book, candidate.Chapter).ToList())
+                .Where(t => t.Chapter == candidate.Chapter && t.Verse >= candidate.FirstVerse && t.Verse <= candidate.LastVerse).ToList();
+            Func<ContentRegion, int> count = r => parts.Where(t => t.Region == r).Sum(t => { int n = 0; for (int i = t.Text.IndexOf(original, StringComparison.Ordinal); i >= 0; i = t.Text.IndexOf(original, i + 1, StringComparison.Ordinal)) n++; return n; });
+            if (count(expected) > 0) return expected;
+            // Never fall back to the verse text: a note about a heading or footnote may quote verse words only to say where it belongs.
+            var others = new[] { ContentRegion.Body, ContentRegion.Heading, ContentRegion.Footnote, ContentRegion.CrossReference }.Where(r => r != expected && count(r) > 0).ToList();
+            return others.Count == 1 && count(others[0]) == 1 && others[0] != ContentRegion.Body ? others[0] : expected;
+        }
+        public static bool MarkerRename(Proposal p)
+        {
+            var a = Regex.Match(p.Original, @"^\\(ms[123]?|s[1234]?|cl|cd)(\s+[^\\\r\n]+)$"); var b = Regex.Match(p.Suggested, @"^\\(ms[123]?|s[1234]?|cl|cd)(\s+[^\\\r\n]+)$");
+            return a.Success && b.Success && a.Groups[2].Value == b.Groups[2].Value && a.Groups[1].Value != b.Groups[1].Value;
+        }
+        // Read-only: the exact change a marker-bearing correction would make now. region tells which passage the
+        // evidence covers: Body for the note's verses, Heading for the whole chapter when a heading before the verse changes.
+        public PassageEvidence PreviewFragment(NoteCandidate candidate, string original, string replacement, out ContentRegion region)
+        {
+            CheckContext();
+            Fresh(candidate);
+            if (!project.CanEdit(plugin, candidate.Book, candidate.Chapter)) throw new InvalidOperationException("You do not have editing permission for this chapter.");
+            List<IUSFMToken> reparsed; string expected;
+            return BuildFragment(project.GetUSFMTokens(candidate.Book, candidate.Chapter).ToList(), candidate, original, replacement, out reparsed, out expected, out region);
+        }
+        PassageEvidence BuildFragment(List<IUSFMToken> tokens, NoteCandidate candidate, string original, string replacement, out List<IUSFMToken> reparsed, out string expected, out ContentRegion region)
+        {
+            string problem = UsfmFragment.Problem(original, replacement);
+            if (problem != null) throw new InvalidOperationException(problem + " Nothing was written.");
+            if (candidate.CrossChapter || candidate.Book != candidate.EndBook || candidate.Chapter < 1) throw new InvalidOperationException("The note is not anchored in one chapter. Make this change in Paratext.");
+            if (project.NormalizeText(replacement) != replacement) throw new InvalidOperationException("The suggested text is not in the project's Unicode normalization. Make this change in Paratext.");
+            // A note or cross-reference origin the note introduces must name the note's own verse.
+            foreach (Match origin in Regex.Matches(replacement, @"\\(?:fr|xo) (\d+)[:.](\d+)"))
+                if (!original.Contains(origin.Value) && (origin.Groups[1].Value != candidate.Chapter.ToString() || Int32.Parse(origin.Groups[2].Value) < candidate.FirstVerse || Int32.Parse(origin.Groups[2].Value) > candidate.LastVerse))
+                    throw new InvalidOperationException("The suggested note refers to " + origin.Groups[1].Value + ":" + origin.Groups[2].Value + ", not the note's verse. Nothing was written; make this change in Paratext.");
+            string before = project.ConvertToUSFMString(tokens);
+            var positions = UsfmFragment.Occurrences(before, original);
+            if (positions.Count == 0) throw new InvalidOperationException("The exact Original, with its markers and spacing, was not found in this chapter. It may be stale or already corrected. No text was changed.");
+            if (positions.Count > 12) throw new InvalidOperationException("The Original occurs " + positions.Count + " times in this chapter; the note does not identify one of them. No text was changed.");
+            reparsed = null; expected = null; region = ContentRegion.Body;
+            bool roundTrip = false; int fits = 0;
+            // First the note's own verses; then also the verse before, whose reference a heading above the verse carries.
+            foreach (bool wide in new[] { false, true })
+            {
+                foreach (int at in positions)
+                {
+                    string after = before.Substring(0, at) + replacement + before.Substring(at + original.Length);
+                    var parsed = project.ConvertToUSFMTokens(after, candidate.Book, candidate.Chapter, 0).ToList();
+                    if (project.ConvertToUSFMString(parsed) != after) { roundTrip = true; continue; }
+                    if (!Confined(tokens, parsed, candidate, wide)) continue;
+                    fits++; reparsed = parsed; expected = after;
+                }
+                if (fits > 0) { region = wide ? ContentRegion.Heading : ContentRegion.Body; break; }
+            }
+            if (fits == 0) throw new InvalidOperationException(roundTrip ? "Paratext's USFM round trip changed the suggested markers. Nothing was written; make this change in Paratext." :
+                "The exact Original is in this chapter but not at the note's verse. No text was changed.");
+            if (fits > 1) throw new InvalidOperationException("The Original occurs more than once at the note's verse. No text was changed.");
+            CheckFragmentStructure(tokens, reparsed);
+            // A note may quote verse words only to say where a heading or footnote belongs. Adding, removing or renaming
+            // markers never changes the verse wording; only a change inside unchanged markers may.
+            Func<List<IUSFMToken>, string> body = ts => Regex.Replace(String.Concat(TokenMapping.Parts(ts).Where(t => t.Region == ContentRegion.Body).Select(t => t.Text)), @"\s+", " ").Trim();
+            if (UsfmFragment.MarkersDiffer(original, replacement) && body(tokens) != body(reparsed))
+                throw new InvalidOperationException("The Suggested text changes markers and would also change the verse wording. It reads as an instruction or partial text, not an exact replacement. Nothing was written; make this change in Paratext.");
+            return new PassageEvidence { Before = Passage(tokens, candidate, region), After = Passage(reparsed, candidate, region), Scope = EvidenceScope(region) };
+        }
+        // Everything before and after the note's verses must serialize exactly as it did.
+        bool Confined(List<IUSFMToken> before, List<IUSFMToken> after, NoteCandidate candidate, bool wide)
+        {
+            int b0, b1, a0, a1;
+            if (!Window(before, candidate, wide, out b0, out b1) || !Window(after, candidate, wide, out a0, out a1)) return false;
+            return project.ConvertToUSFMString(before.Take(b0).ToList()) == project.ConvertToUSFMString(after.Take(a0).ToList()) &&
+                project.ConvertToUSFMString(before.Skip(b1 + 1).ToList()) == project.ConvertToUSFMString(after.Skip(a1 + 1).ToList());
+        }
+        // The tokens of the note's verses. Wide adds only the heading directly above the first verse: heading text and
+        // paragraph-level markers, back to the previous verse's own text, notes or the chapter marker, which stay outside.
+        static bool Window(List<IUSFMToken> tokens, NoteCandidate candidate, bool wide, out int first, out int last)
+        {
+            Predicate<IUSFMToken> inside = t => t.VerseRef != null && t.VerseRef.ChapterNum == candidate.Chapter && t.VerseRef.VerseNum >= candidate.FirstVerse && t.VerseRef.VerseNum <= candidate.LastVerse;
+            first = tokens.FindIndex(inside); last = tokens.FindLastIndex(inside);
+            if (first < 0) return false;
+            if (!wide) return true;
+            var headings = new HashSet<int>(TokenMapping.Parts(tokens).Where(t => t.Region == ContentRegion.Heading).Select(t => t.TokenIndex));
+            int start = first;
+            while (start > 0)
+            {
+                var marker = tokens[start - 1] as IUSFMMarkerToken;
+                if (marker != null ? marker.Type != MarkerType.Paragraph : !headings.Contains(start - 1)) break;
+                start--;
+            }
+            if (start == first) return false;
+            first = start; return true;
+        }
+        // Chapter and verse numbering must be untouched, and every footnote and cross-reference must open and close properly.
+        static void CheckFragmentStructure(List<IUSFMToken> before, List<IUSFMToken> after)
+        {
+            Func<List<IUSFMToken>, string> numbering = ts => String.Join("|", ts.OfType<IUSFMMarkerToken>().Where(m => m.Type == MarkerType.Verse || m.Type == MarkerType.Chapter).Select(m => m.Marker + " " + m.Data));
+            if (numbering(before) != numbering(after)) throw new InvalidOperationException("The change would alter chapter or verse numbering. Nothing was written; make this change in Paratext.");
+            string open = null;
+            foreach (var marker in after.OfType<IUSFMMarkerToken>())
+            {
+                string m = marker.Marker.TrimStart('\\');
+                bool opens = m == "f" || m == "fe" || m == "ef" || m == "x" || m == "ex", closes = m == "f*" || m == "fe*" || m == "ef*" || m == "x*" || m == "ex*";
+                bool breaks = marker.Type == MarkerType.Paragraph || marker.Type == MarkerType.Verse || marker.Type == MarkerType.Chapter;
+                if ((opens && open != null) || (closes && open + "*" != m) || (breaks && open != null))
+                    throw new InvalidOperationException("The change would leave a footnote or cross-reference without its proper opening or closing marker. Nothing was written; make this change in Paratext.");
+                if (opens) open = m; else if (closes) open = null;
+            }
+            if (open != null) throw new InvalidOperationException("The change would leave a footnote or cross-reference unclosed. Nothing was written; make this change in Paratext.");
+        }
+        // Second general structural writer: one exact USFM replacement at the note's verse, proven by Paratext's own round trip.
+        public void ApplyFragment(NoteCandidate candidate, string original, string replacement, Action beforeSubmit = null, Action<PassageEvidence> captureEvidence = null)
+        {
+            CheckContext();
+            string problem = UsfmFragment.Problem(original, replacement);
+            if (problem != null) throw new InvalidOperationException(problem + " Nothing was written.");
+            if (!project.CanEdit(plugin, candidate.Book, candidate.Chapter)) throw new InvalidOperationException("You do not have editing permission for this chapter.");
+            // History checkpoints can release outstanding locks: take it before requesting ours.
+            project.MakeHistoryPoint("Before Note Suggestions marker correction", true);
+            bool revoked = false;
+            using (var writeLock = project.RequestWriteLock(plugin, delegate { revoked = true; }, candidate.Book, candidate.Chapter))
+            {
+                if (writeLock == null) throw new InvalidOperationException("Paratext could not grant a Scripture write lock. Try again when the chapter is available.");
+                Fresh(candidate);
+                if (!project.CanEdit(plugin, candidate.Book, candidate.Chapter)) throw new InvalidOperationException("Editing permission was withdrawn. No edit was submitted.");
+                var tokens = project.GetUSFMTokens(candidate.Book, candidate.Chapter).ToList();
+                string before = project.ConvertToUSFMString(tokens);
+                List<IUSFMToken> reparsed; string expected; ContentRegion region;
+                var evidence = BuildFragment(tokens, candidate, original, replacement, out reparsed, out expected, out region);
+                if (captureEvidence != null) captureEvidence(evidence);
+                if (revoked) throw new InvalidOperationException("The write lock was withdrawn. No edit was submitted.");
+                if (beforeSubmit != null) beforeSubmit();
+                if (revoked) throw new InvalidOperationException("The write lock was withdrawn before submission.");
+                Recovery[projectId] = new RecoveryRecord { ProjectId = projectId, Book = candidate.Book, Chapter = candidate.Chapter, Before = before, After = expected };
+                project.PutUSFMTokens(writeLock, reparsed, candidate.Book);
+                writeLock.SendNotifications();
+                Verify(candidate.Book, candidate.Chapter, expected);
+            }
+            HistoryAfterWrite("Note Suggestions marker correction");
+        }
         public void Apply(NoteCandidate candidate, string original, string replacement, ContentRegion region, bool reviewed, bool explicitDeletion = false, Action beforeSubmit = null, Action<PassageEvidence> captureEvidence = null, bool reviewedBulkCorrection = false)
         {
             CheckContext();

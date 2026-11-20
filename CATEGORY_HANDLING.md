@@ -59,7 +59,16 @@ Use separate validated operations for marker changes, note edits/moves, verse-br
 
 The notes include marker reclassification, moving a footnote call, and exchanging verse contents while relocating a cross-reference. These cannot be represented safely as a generic word replacement. Unsupported structural operations remain review-only with the limitation stated; they are not marked applied.
 
-Fast review adds one more dedicated transform: inserting a single variant footnote (`\f + \fr C:V \ft …\f*`), mainly for Source comparison and Textual-basis review, from reviewer-chosen templates. It is previewed as exact chapter USFM, validated by the host's reparse and limited to adding that one note. Prepared wording from a wording sheet is an explicit reviewer-approved literal correction in the sense above. It is labelled as not from the note and applied only by the reviewer's key press. The plugin never derives replacement text from a Suggested field's alternatives or instructions.
+Fast review adds one more dedicated transform: inserting a single variant footnote (`\f + \fr C:V \ft …\f*`), mainly for Source comparison and Textual-basis review, from reviewer-chosen templates. It is previewed as exact chapter USFM, validated by the host's reparse and limited to adding that one note. Prepared wording from a wording sheet is an explicit reviewer-approved literal correction in the sense above. It is labelled as not from the note and applied only by the reviewer's key press.
+
+Fast review also reads exact Tamil out of a longer Suggested line with a small deterministic parser (`Wording.Choices`), for a single reviewed apply only:
+- an English-only remark in brackets is dropped;
+- slash and `(or …)` alternatives become separate choices, never one string;
+- one Tamil phrase is taken after wording that presents it as the replacement (`follow the ESV:`, `follow the reference text`, `or read`, a quoted phrase after `reviewer:`).
+
+`e.g.` examples, footnote wording, headings to add, remarks about moving text or verse alignment, and text with an ellipsis are not taken. The removal is never silent: the screen names how the wording was read, in the warning colour, beside the exact before/after. Automatic routing and bulk eligibility (`Route`, `ReviewedBulkLiteral`) are unchanged by this; the plugin still composes no wording of its own.
+
+A marker-bearing proposal that gives exact USFM on both sides is applied in fast review as one validated replacement (`ApplyFragment`): unique at the note's verse, host round trip exact, numbering and note boundaries intact, nothing outside the note's verses changed, and, when markers change, nothing of the Original lost and the verse wording unchanged. Verse-content exchanges, verse bridges, numbering changes and instructions without exact USFM remain manual.
 
 ### Instructions, no-change notes, and legacy comments
 

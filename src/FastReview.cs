@@ -9,7 +9,7 @@ using System.Xml.Linq;
 namespace ParatextNoteSuggestions
 {
     public enum NoLiteralMode { StopForMe, LaterRound, PreparedWording }
-    public enum FastAction { None, Apply, Reject, Manual, Footnote, Skip, Previous, Next, Return, Preset, EditComment, BackToKeys, Undo }
+    public enum FastAction { None, Apply, Reject, Manual, Footnote, Skip, Previous, Next, Return, Preset, EditComment, BackToKeys, Undo, Wording }
     // Fast review settings, kept per Windows account and project beside the queue's other local state.
     public sealed class FastSettings
     {
@@ -73,6 +73,9 @@ namespace ParatextNoteSuggestions
         public PassageEvidence Preview;
         public FootnotePlan Footnote;
         public bool OwnWording;
+        // Fragment: a marker-bearing change written by ApplyFragment. Derived: the note's Tamil was read out of a
+        // longer Suggested line, or found in another place than the note names.
+        public bool Fragment, Derived;
     }
     public static class FastKeys
     {
@@ -81,10 +84,10 @@ namespace ParatextNoteSuggestions
         {
             return new Dictionary<FastAction, Keys> { { FastAction.Apply, Keys.F5 }, { FastAction.Reject, Keys.F6 }, { FastAction.Manual, Keys.F7 }, { FastAction.Footnote, Keys.F8 },
                 { FastAction.Skip, Keys.F9 }, { FastAction.Previous, Keys.PageUp }, { FastAction.Next, Keys.PageDown }, { FastAction.Return, Keys.Home },
-                { FastAction.EditComment, Keys.F2 }, { FastAction.BackToKeys, Keys.Escape }, { FastAction.Undo, Keys.F11 } };
+                { FastAction.EditComment, Keys.F2 }, { FastAction.BackToKeys, Keys.Escape }, { FastAction.Undo, Keys.F11 }, { FastAction.Wording, Keys.F4 } };
         }
         static readonly Dictionary<Keys, FastAction> Letters = new Dictionary<Keys, FastAction> { { Keys.A, FastAction.Apply }, { Keys.R, FastAction.Reject }, { Keys.M, FastAction.Manual },
-            { Keys.F, FastAction.Footnote }, { Keys.S, FastAction.Skip }, { Keys.P, FastAction.Previous }, { Keys.N, FastAction.Next }, { Keys.H, FastAction.Return }, { Keys.U, FastAction.Undo } };
+            { Keys.F, FastAction.Footnote }, { Keys.S, FastAction.Skip }, { Keys.P, FastAction.Previous }, { Keys.N, FastAction.Next }, { Keys.H, FastAction.Return }, { Keys.U, FastAction.Undo }, { Keys.W, FastAction.Wording } };
         public static bool Safe(Keys key)
         { return (key >= Keys.F1 && key <= Keys.F24) || key == Keys.PageUp || key == Keys.PageDown || key == Keys.Home || key == Keys.End || key == Keys.Insert || key == Keys.Escape; }
         public static FastAction Action(Keys keyData, FastSettings settings, out int preset)
@@ -111,7 +114,7 @@ namespace ParatextNoteSuggestions
         {
             Func<FastAction, string> k = a => Label(s.KeyMap[a]) + (s.LetterKeys && Letters.ContainsValue(a) ? "/" + Letters.First(p => p.Value == a).Key : "");
             return k(FastAction.Apply) + " apply   " + k(FastAction.Reject) + " reject   " + k(FastAction.Manual) + " fixed by hand   " + k(FastAction.Footnote) + " footnote   " +
-                k(FastAction.Skip) + " skip   " + k(FastAction.Previous) + "/" + k(FastAction.Next) + " browse   " + k(FastAction.Return) + " passage   Alt+1-5 comment   " +
+                k(FastAction.Skip) + " skip   " + k(FastAction.Wording) + " other wording   " + k(FastAction.Previous) + "/" + k(FastAction.Next) + " browse   " + k(FastAction.Return) + " passage   Alt+1-5 comment   " +
                 k(FastAction.EditComment) + " edit comment   " + k(FastAction.Undo) + " undo";
         }
     }
@@ -150,7 +153,7 @@ namespace ParatextNoteSuggestions
             later = new RadioButton { Text = "Later round: leave them open and untouched in this run" },
             prepared = new RadioButton { Text = "Prepared wording: use an imported wording sheet, labelled as not from the note; otherwise stop for me" };
         readonly CheckBox hold = new CheckBox { Text = "Hold each note reply until the next decision, so a wrong key press can be undone completely" };
-        readonly CheckBox letters = new CheckBox { Text = "Also accept single letters (A R M F S P N H U, 0-5). Use only after a whole book showed no unexpected focus loss in the Log tab: a letter typed into the editor changes Scripture." };
+        readonly CheckBox letters = new CheckBox { Text = "Also accept single letters (A R M F S W P N H U, 0-5). Use only after a whole book showed no unexpected focus loss in the Log tab: a letter typed into the editor changes Scripture." };
         readonly TextBox font = new TextBox { Dock = DockStyle.Top };
         readonly NumericUpDown size = new NumericUpDown { Minimum = 8, Maximum = 40, DecimalPlaces = 0, Width = ParatextTheme.Scale(70) };
         readonly ComboBox rejectWording = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Top },
